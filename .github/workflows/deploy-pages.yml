@@ -28,10 +28,24 @@ jobs:
       - name: Add wasm32 Rust target
         run: rustup target add wasm32-unknown-unknown
 
+      # Install trunk by downloading the release binary directly with
+       # curl retries. We used to use `jetli/trunk-action@v0.5.0` here but
+       # it would fail the whole deploy whenever the GitHub Releases CDN
+       # 502'd — and when our deploy fails, GitHub's fallback Jekyll
+       # workflow overwrites the live site with a generic page. Doing the
+       # download ourselves lets us use curl's --retry-all-errors and pin
+       # a specific known-good trunk version.
       - name: Install trunk
-        uses: jetli/trunk-action@v0.5.0
-        with:
-          version: latest
+        run: |
+          set -euo pipefail
+          TRUNK_VERSION="0.21.14"
+          INSTALL_DIR="${RUNNER_TEMP}/trunk-bin"
+          mkdir -p "${INSTALL_DIR}"
+          curl --retry 6 --retry-delay 10 --retry-all-errors -fsSL \
+            "https://github.com/trunk-rs/trunk/releases/download/v${TRUNK_VERSION}/trunk-x86_64-unknown-linux-gnu.tar.gz" \
+            | tar -xz -C "${INSTALL_DIR}"
+          echo "${INSTALL_DIR}" >> "${GITHUB_PATH}"
+          "${INSTALL_DIR}/trunk" --version
 
       # Site layout:
       #   /        ← landing page (website/ contents copied to dist/ root)
