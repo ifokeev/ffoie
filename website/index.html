@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>FFOIE — Freaking Fast Open Interactive Environment</title>
+    <meta name="description" content="A Quake-style FPS engine prototype in Rust. Cold start under 2-5 seconds on every target platform; Defrag-grade movement feel." />
+    <style>
+        html, body {
+            margin: 0;
+            padding: 0;
+            background: #0c0e12;
+            color: #ddd;
+            font-family: -apple-system, system-ui, "Segoe UI", sans-serif;
+            line-height: 1.55;
+        }
+        main {
+            max-width: 720px;
+            margin: 0 auto;
+            padding: 64px 24px 96px;
+        }
+        h1 {
+            font-size: 2.4rem;
+            margin: 0 0 8px;
+            letter-spacing: -0.02em;
+        }
+        .tagline {
+            color: #9aa3ad;
+            margin: 0 0 40px;
+        }
+        h2 {
+            font-size: 1.1rem;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: #9aa3ad;
+            margin: 48px 0 16px;
+        }
+        p { margin: 12px 0; }
+        a { color: #6db1ff; }
+        .downloads {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+            gap: 12px;
+            margin-top: 16px;
+        }
+        .dl {
+            display: block;
+            padding: 18px 16px;
+            background: #1a1d22;
+            border: 1px solid #232830;
+            border-radius: 8px;
+            color: #ddd;
+            text-decoration: none;
+            text-align: center;
+            transition: background 0.12s, border-color 0.12s;
+        }
+        .dl:hover { background: #232830; border-color: #2f3640; }
+        .dl.primary {
+            background: #1d3a6b;
+            border-color: #2a5396;
+            color: #fff;
+        }
+        .dl.primary:hover { background: #244a87; border-color: #356bb8; }
+        .dl.disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+            pointer-events: none;
+        }
+        .dl .platform {
+            font-weight: 600;
+            font-size: 1rem;
+        }
+        .dl .note {
+            display: block;
+            font-size: 0.78rem;
+            color: #9aa3ad;
+            margin-top: 4px;
+        }
+        footer {
+            margin-top: 64px;
+            color: #6b7380;
+            font-size: 0.85rem;
+        }
+    </style>
+</head>
+<body>
+    <main>
+        <h1>FFOIE</h1>
+        <p class="tagline">Freaking Fast Open Interactive Environment — a Quake-style FPS engine prototype in Rust.</p>
+
+        <p>Two product non-negotiables: <strong>cold start under 2–5 seconds</strong> on every target platform, and <strong>Defrag-grade movement feel</strong> — raw mouse input, fixed-timestep simulation, classic Quake <code>PM_Accelerate</code> / <code>PM_AirAccelerate</code> / <code>PM_Friction</code> so real strafe-jumping just works.</p>
+
+        <p>This is an engine prototype, not a game yet — no weapons, enemies, levels, AI, audio, or netcode. The bones (input, render, physics, asset pipeline, UI, deploy) are the focus.</p>
+
+        <h2>Play / Download</h2>
+        <div class="downloads">
+            <a class="dl primary" href="/web/">
+                <span class="platform">Play in Browser</span>
+                <span class="note">Chrome / Edge / Safari / Firefox</span>
+            </a>
+            <a class="dl disabled" href="#">
+                <span class="platform">Windows</span>
+                <span class="note">Coming soon</span>
+            </a>
+            <a class="dl disabled" href="#">
+                <span class="platform">macOS</span>
+                <span class="note">Coming soon</span>
+            </a>
+            <a class="dl disabled" href="#">
+                <span class="platform">Linux</span>
+                <span class="note">Coming soon</span>
+            </a>
+        </div>
+
+        <footer>
+            Source on <a href="https://github.com/zhovner/ffoie">GitHub</a>.
+        </footer>
+    </main>
+</body>
+</html>

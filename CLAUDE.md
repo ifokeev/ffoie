@@ -146,9 +146,13 @@ ffoie/
 ├── README.md               install + build per platform — read first
 ├── CLAUDE.md               this file
 ├── run-vulkan.sh           Mali-G52 / PanVK launcher
-├── index.html              trunk manifest for the web build
+├── CNAME                   ffoie.net — drives the Pages routing logic below
 ├── .github/workflows/
 │   └── deploy-pages.yml    GitHub Pages deploy (custom domain ffoie.net)
+├── website/                landing site source (served at /)
+│   └── index.html          hand-written, no framework; add images/videos here
+├── web-client/             trunk manifest for the wasm game (served at /web/)
+│   └── index.html          <link data-trunk rel="rust" ...> — loads the wasm
 ├── src/
 │   ├── main.rs             everything (single-file engine)
 │   ├── shader.wgsl         instanced lit geometry (cubes)
@@ -162,6 +166,16 @@ ffoie/
     └── macos-panic/        kernel panic logs observed during dev
                             (all Apple-side bugs — none mention FFOIE)
 ```
+
+### Pages route layout
+
+- `ffoie.net/`         → `website/index.html` (landing)
+- `ffoie.net/web/`     → trunk build of `web-client/index.html` (the game)
+
+The workflow builds the game with `--public-url "/web/" --dist dist/web
+web-client/index.html`, then `cp -R website/. dist/` lays the landing
+files on top. Local trunk builds (`trunk serve web-client/index.html`)
+still work for iterating on just the game.
 
 Build-artifact paths:
 

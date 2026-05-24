@@ -33,20 +33,30 @@ jobs:
         with:
           version: latest
 
-      # With a custom domain (CNAME file present in repo root) Pages serves
-      # from `/`; without one it serves from `/<repo>/`. Pick the right
-      # public URL for asset path resolution either way.
-      - name: Build (trunk)
+      # Site layout:
+      #   /        ← landing page (website/ contents copied to dist/ root)
+      #   /web/    ← wasm game (trunk output, built from web-client/index.html)
+      #
+      # With a custom domain (CNAME file present) Pages serves from `/`, so
+      # the game's public URL prefix is `/web/`. Without a CNAME, Pages
+      # serves from `/<repo>/`, so the prefix becomes `/<repo>/web/`.
+      - name: Build game (trunk)
         run: |
           if [ -f CNAME ]; then
-            echo "CNAME found ($(cat CNAME)) — building for custom-domain root"
-            trunk build --release --public-url "/"
+            echo "CNAME found ($(cat CNAME)) — building for custom-domain root, game at /web/"
+            trunk build --release --public-url "/web/" --dist dist/web web-client/index.html
           else
-            echo "No CNAME — building for sub-path /${REPO}/"
-            trunk build --release --public-url "/${REPO}/"
+            echo "No CNAME — building for sub-path /${REPO}/web/"
+            trunk build --release --public-url "/${REPO}/web/" --dist dist/web web-client/index.html
           fi
         env:
           REPO: ${{ github.event.repository.name }}
+
+      # Drop the landing site's files at the dist root so `/` serves the
+      # landing page and `/web/` keeps serving the game.
+      - name: Copy landing site into dist
+        run: |
+          cp -R website/. dist/
 
       # Pass CNAME through to the artifact so GH Pages routes the custom
       # domain even when deploying via Actions (rather than "from a branch").
