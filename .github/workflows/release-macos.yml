@@ -1,0 +1,184 @@
+name: Release macOS
+
+# Tag push (v*) → build, sign, notarize, attach DMG to a GitHub Release.
+# Manual dispatch → same build/sign/notarize, DMG saved as a workflow
+# artifact (not attached to a Release).
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version for manual builds, e.g. 0.0.2 (no 'v' prefix)"
+        required: false
+        default: "0.0.0-dev"
+
+permissions:
+  contents: write  # needed to upload assets to GitHub Releases
+
+jobs:
+  build:
+    runs-on: macos-latest  # arm64 host; we build both arches via cross-target
+    env:
+      APP_NAME: FFOIE
+      BUNDLE_ID: net.ffoie.app
+      BINARY_NAME: ffoie  # must match Cargo.toml [package].name
+    steps:
+      - uses: actions/checkout@v4
+
+      # Resolve VERSION (e.g. "0.0.2") regardless of trigger:
+      #  - tag push     → strip leading 'v' from refs/tags/vX.Y.Z
+      #  - workflow_dispatch → use the provided input, also strip leading 'v'
+      - name: Resolve version
+        id: vars
+        run: |
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            VERSION="${{ github.event.inputs.version }}"
+            VERSION="${VERSION#v}"
+          fi
+          echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
+          echo "Resolved VERSION=${VERSION}"
+
+      - name: Cache cargo registry + target
+        uses: Swatinem/rust-cache@v2
+
+      - name: Add Rust Apple targets
+        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+
+      # Two cargo builds + lipo. The cargo cache keeps the second build
+      # incremental (only the codegen differs between arches).
+      - name: Build universal binary (arm64 + x86_64)
+        run: |
+          cargo build --release --target aarch64-apple-darwin
+          cargo build --release --target x86_64-apple-darwin
+          mkdir -p target/universal-apple-darwin/release
+          lipo -create -output "target/universal-apple-darwin/release/${BINARY_NAME}" \
+            "target/aarch64-apple-darwin/release/${BINARY_NAME}" \
+            "target/x86_64-apple-darwin/release/${BINARY_NAME}"
+          file "target/universal-apple-darwin/release/${BINARY_NAME}"
+
+      # Assemble the .app bundle. A Mac .app is just a directory with a
+      # specific layout; no SDK tool is strictly required.
+      - name: Assemble .app bundle
+        env:
+          VERSION: ${{ steps.vars.outputs.version }}
+        run: |
+          APP_DIR="${APP_NAME}.app"
+          rm -rf "${APP_DIR}"
+          mkdir -p "${APP_DIR}/Contents/MacOS" "${APP_DIR}/Contents/Resources"
+          cp "target/universal-apple-darwin/release/${BINARY_NAME}" \
+             "${APP_DIR}/Contents/MacOS/${APP_NAME}"
+          # Icon is optional — if packaging/macos/AppIcon.icns exists, use
+          # it; otherwise macOS shows a generic app icon.
+          if [ -f packaging/macos/AppIcon.icns ]; then
+            cp packaging/macos/AppIcon.icns "${APP_DIR}/Contents/Resources/AppIcon.icns"
+          fi
+          envsubst < packaging/macos/Info.plist.template \
+            > "${APP_DIR}/Contents/Info.plist"
+          echo "--- Info.plist ---"
+          cat "${APP_DIR}/Contents/Info.plist"
+
+      # Import the Developer ID Application cert into a temporary keychain
+      # that lives only for this job. The temp keychain ensures codesign
+      # picks the right identity automatically (only one match).
+      - name: Import signing certificate
+        env:
+          CERT_BASE64:       ${{ secrets.MACOS_CERTIFICATE }}
+          CERT_PASSWORD:     ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.MACOS_KEYCHAIN_PASSWORD }}
+        run: |
+          set -e
+          KEYCHAIN_PATH="${RUNNER_TEMP}/build.keychain-db"
+          CERT_PATH="${RUNNER_TEMP}/cert.p12"
+          echo "${CERT_BASE64}" | base64 -d > "${CERT_PATH}"
+          security create-keychain -p "${KEYCHAIN_PASSWORD}" "${KEYCHAIN_PATH}"
+          security set-keychain-settings -lut 21600 "${KEYCHAIN_PATH}"
+          security unlock-keychain -p "${KEYCHAIN_PASSWORD}" "${KEYCHAIN_PATH}"
+          security import "${CERT_PATH}" -P "${CERT_PASSWORD}" -A -t cert -f pkcs12 -k "${KEYCHAIN_PATH}"
+          security list-keychain -d user -s "${KEYCHAIN_PATH}" $(security list-keychains -d user | xargs)
+          security set-key-partition-list -S apple-tool:,apple: -k "${KEYCHAIN_PASSWORD}" "${KEYCHAIN_PATH}" > /dev/null
+          # Sanity check: list available identities
+          security find-identity -v -p codesigning "${KEYCHAIN_PATH}"
+
+      # Sign with hardened runtime + secure timestamp. The "Developer ID
+      # Application" identity name is matched by prefix — works because the
+      # temp keychain contains only one such cert.
+      - name: Code-sign the .app
+        run: |
+          codesign --force --options runtime --timestamp \
+            --entitlements packaging/macos/entitlements.plist \
+            --sign "Developer ID Application" \
+            "${APP_NAME}.app"
+          codesign --verify --deep --strict --verbose=2 "${APP_NAME}.app"
+
+      # Notarization: zip the .app, submit to Apple, wait for the result,
+      # then staple the ticket onto the .app so Gatekeeper can verify offline.
+      - name: Notarize and staple the .app
+        env:
+          APPLE_ID:       ${{ secrets.MACOS_NOTARIZATION_APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.MACOS_NOTARIZATION_PASSWORD }}
+          TEAM_ID:        ${{ secrets.MACOS_TEAM_ID }}
+        run: |
+          ditto -c -k --keepParent "${APP_NAME}.app" "${APP_NAME}.zip"
+          xcrun notarytool submit "${APP_NAME}.zip" \
+            --apple-id "${APPLE_ID}" \
+            --password "${APPLE_PASSWORD}" \
+            --team-id "${TEAM_ID}" \
+            --wait
+          xcrun stapler staple "${APP_NAME}.app"
+
+      # Create the DMG. hdiutil is built into macOS so no install needed.
+      # The Applications symlink inside the DMG gives users the standard
+      # drag-the-icon-onto-Applications install gesture.
+      - name: Create DMG
+        env:
+          VERSION: ${{ steps.vars.outputs.version }}
+        run: |
+          DMG_NAME="${APP_NAME}-${VERSION}.dmg"
+          STAGING="${RUNNER_TEMP}/dmg-staging"
+          rm -rf "${STAGING}"
+          mkdir -p "${STAGING}"
+          cp -R "${APP_NAME}.app" "${STAGING}/"
+          ln -s /Applications "${STAGING}/Applications"
+          hdiutil create -volname "${APP_NAME}" -srcfolder "${STAGING}" \
+            -ov -format UDZO "${DMG_NAME}"
+          echo "DMG_NAME=${DMG_NAME}" >> "${GITHUB_ENV}"
+
+      - name: Sign the DMG
+        run: |
+          codesign --force --sign "Developer ID Application" "${DMG_NAME}"
+
+      - name: Notarize and staple the DMG
+        env:
+          APPLE_ID:       ${{ secrets.MACOS_NOTARIZATION_APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.MACOS_NOTARIZATION_PASSWORD }}
+          TEAM_ID:        ${{ secrets.MACOS_TEAM_ID }}
+        run: |
+          xcrun notarytool submit "${DMG_NAME}" \
+            --apple-id "${APPLE_ID}" \
+            --password "${APPLE_PASSWORD}" \
+            --team-id "${TEAM_ID}" \
+            --wait
+          xcrun stapler staple "${DMG_NAME}"
+
+      # Final sanity check: Gatekeeper should accept the DMG straight up.
+      - name: Verify Gatekeeper acceptance
+        run: spctl --assess --type install --verbose "${DMG_NAME}"
+
+      # Always upload as a workflow artifact (useful for manual dispatch
+      # runs and for debugging tag runs).
+      - name: Upload DMG as workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ffoie-macos-dmg
+          path: ${{ env.DMG_NAME }}
+
+      # Only attach to a GitHub Release when the trigger was a tag.
+      - name: Attach DMG to GitHub Release
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ env.DMG_NAME }}
+          fail_on_unmatched_files: true
