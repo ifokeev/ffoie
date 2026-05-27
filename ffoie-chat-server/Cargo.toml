@@ -1,8 +1,11 @@
 [package]
 name = "ffoie-chat-server"
-version = "0.0.1"
+version = "0.1.0"
 edition = "2021"
 rust-version = "1.87"
 publish = false
 
+# Phase 1: stub only — no axum, tokio, sqlx, tracing yet (all deferred to Phase 2).
+# ffoie-protocol path dep is included to verify the workspace path resolves at compile time.
 [dependencies]
+ffoie-protocol = { path = "../ffoie-protocol" }

@@ -51,8 +51,8 @@ jobs:
       # incremental (only the codegen differs between arches).
       - name: Build universal binary (arm64 + x86_64)
         run: |
-          cargo build --release --target aarch64-apple-darwin
-          cargo build --release --target x86_64-apple-darwin
+          cargo build --release --target aarch64-apple-darwin -p ffoie
+          cargo build --release --target x86_64-apple-darwin -p ffoie
           mkdir -p target/universal-apple-darwin/release
           lipo -create -output "target/universal-apple-darwin/release/${BINARY_NAME}" \
             "target/aarch64-apple-darwin/release/${BINARY_NAME}" \

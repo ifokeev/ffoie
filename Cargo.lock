@@ -722,11 +722,18 @@ dependencies = [
 
 [[package]]
 name = "ffoie-chat-server"
-version = "0.0.1"
+version = "0.1.0"
+dependencies = [
+ "ffoie-protocol",
+]
 
 [[package]]
 name = "ffoie-protocol"
-version = "0.0.1"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
 
 [[package]]
 name = "find-msvc-tools"
