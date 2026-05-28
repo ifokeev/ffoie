@@ -322,3 +322,7 @@ Next likely directions, roughly in priority order:
 7. **Weapons / hit detection.**
 
 None of this is started; the prototype is intentionally a sandbox right now.
+
+## v1.1 — Shipped: Online Chat MVP
+
+v1.1 shipped a WebSocket chat server (`crates/ffoie-chat-server`) with in-memory fan-out, scrollback, rate limiting, and graceful shutdown. The engine client (native + wasm) connects automatically on start and renders chat in the egui HUD. Dev stack: `make docker-up` brings up the server; `make soak` runs the 1k-connection 5-minute load test. WS endpoint: `ws://localhost:8080/ws`. Health: `curl http://localhost:8080/healthz`.
