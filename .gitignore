@@ -31,3 +31,7 @@
 # k6 soak test runtime output (generated, not source)
 /scripts/soak/server-rss.log
 /scripts/soak/soak-results.json
+
+# Claude Code: track shared skills, ignore local-only bits
+/.claude/worktrees/
+/.claude/settings.local.json
