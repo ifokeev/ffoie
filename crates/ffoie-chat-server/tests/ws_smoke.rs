@@ -230,84 +230,119 @@ async fn two_clients_chat() {
 }
 
 /// SayTeam from a client only reaches same-team members; the other team sees nothing.
+///
+/// The server assigns teams randomly (50/50).  With only 3 clients the
+/// all-same-team case occurs ~25% of the time.  To guarantee we always test
+/// the filter-exclusion path, we retry connecting 3 clients until we observe
+/// at least one Red AND one Blue in the assigned teams.  With a cap of 10
+/// attempts the probability of never finding a split is (1/4)^10 < 10^-6.
 #[tokio::test]
 async fn team_filter() {
     let port = spawn_test_server().await;
 
-    // Connect clients sequentially so each Welcome arrives cleanly.
-    let (mut sink_a, mut stream_a) = connect_ws(port).await;
-    let (_nick_a, team_a) = send_connect(&mut sink_a, &mut stream_a, "PlayerA", Team::Red).await;
+    // Retry loop: connect 3 clients, check for a team split, retry if all same.
+    let max_attempts = 10;
+    for attempt in 0..max_attempts {
+        // Connect clients sequentially so each Welcome arrives cleanly.
+        let (mut sink_a, mut stream_a) = connect_ws(port).await;
+        let (_nick_a, team_a) =
+            send_connect(&mut sink_a, &mut stream_a, "PlayerA", Team::Red).await;
 
-    let (mut sink_b, mut stream_b) = connect_ws(port).await;
-    let (_nick_b, team_b) = send_connect(&mut sink_b, &mut stream_b, "PlayerB", Team::Blue).await;
+        let (mut sink_b, mut stream_b) = connect_ws(port).await;
+        let (_nick_b, team_b) =
+            send_connect(&mut sink_b, &mut stream_b, "PlayerB", Team::Blue).await;
 
-    let (mut sink_c, mut stream_c) = connect_ws(port).await;
-    let (_nick_c, team_c) = send_connect(&mut sink_c, &mut stream_c, "PlayerC", Team::Red).await;
+        let (mut sink_c, mut stream_c) = connect_ws(port).await;
+        let (_nick_c, team_c) =
+            send_connect(&mut sink_c, &mut stream_c, "PlayerC", Team::Red).await;
 
-    // Settle: give all three join-broadcast notifications time to fan out to
-    // every subscriber before we start draining fixed counts.  Without this,
-    // the brief window between send_connect(C) returning and C's connection
-    // task registering + broadcasting JoinedLeft{Joined} can cause the drain
-    // counts to be inconsistent and the test to flake.
-    tokio::time::sleep(Duration::from_millis(100)).await;
+        // Settle: give all join-broadcast notifications time to fan out to every
+        // subscriber before we start draining fixed counts.
+        tokio::time::sleep(Duration::from_millis(100)).await;
 
-    // Drain all join notifications from each stream before asserting.
-    // A connects first; it sees its own join, then B's join, then C's join = 3.
-    drain(&mut stream_a, 3).await;
-    // B sees its own join + C's join = 2.
-    drain(&mut stream_b, 2).await;
-    // C sees only its own join = 1.
-    drain(&mut stream_c, 1).await;
+        // Drain all join notifications from each stream before asserting.
+        // On attempt > 0, there are prior-client JoinedLeft{joined:false} frames
+        // queued ahead of new JoinedLeft{joined:true} frames.  Use a generous
+        // drain that skips any message type rather than a fixed count.
+        //
+        // Drain each stream for up to 500 ms, stopping early once the stream
+        // goes quiet (no frame within 50 ms = notifications have settled).
+        async fn drain_until_quiet(stream: &mut WsStream) {
+            loop {
+                match recv_timeout(stream, Duration::from_millis(50)).await {
+                    Ok(_) => continue,
+                    Err(_) => break, // quiet
+                }
+            }
+        }
+        drain_until_quiet(&mut stream_a).await;
+        drain_until_quiet(&mut stream_b).await;
+        drain_until_quiet(&mut stream_c).await;
 
-    // Find two clients on the same team and one on the other.
-    // Server assigns teams randomly; if all three ended up on the same team, skip.
-    let (sender_team, other_team) = if team_a == team_b {
-        (team_a, team_c)
-    } else if team_a == team_c {
-        (team_a, team_b)
-    } else if team_b == team_c {
-        (team_b, team_a)
-    } else {
-        // All on different teams — SayTeam still works; just verify sender receives.
-        send(&mut sink_a, &ClientMessage::SayTeam { text: "anyteam".to_string() }).await;
-        let got = recv(&mut stream_a).await;
-        assert!(matches!(got, ServerMessage::Message { .. }), "sender should get own SayTeam");
-        return;
-    };
+        // Check for a team split.  All three on the same team means there is no
+        // outsider to assert against — drop everything and retry.
+        let all_same = team_a == team_b && team_b == team_c;
+        if all_same {
+            // Drop connections; the server will clean them up.
+            drop((sink_a, stream_a, sink_b, stream_b, sink_c, stream_c));
+            // Allow the server tasks to process the disconnections before the
+            // next attempt so join-notification counts stay predictable.
+            tokio::time::sleep(Duration::from_millis(150)).await;
+            if attempt == max_attempts - 1 {
+                panic!(
+                    "team_filter: all {max_attempts} attempts produced all-same-team assignments; \
+                     this is astronomically unlikely — check server team-assignment logic"
+                );
+            }
+            continue; // retry
+        }
 
-    // Pick sender from the majority team.
-    let (sender_sink, sender_stream, teammate_stream, outsider_stream) =
-        if team_a == sender_team && team_b == sender_team {
-            (&mut sink_a, &mut stream_a, &mut stream_b, &mut stream_c)
-        } else if team_a == sender_team && team_c == sender_team {
-            (&mut sink_a, &mut stream_a, &mut stream_c, &mut stream_b)
-        } else {
-            (&mut sink_b, &mut stream_b, &mut stream_c, &mut stream_a)
-        };
-    let _ = other_team; // suppress unused warning
+        // We have a split.  Identify sender (majority team), teammate, outsider.
+        //
+        // Exactly one of the following is true when not all-same:
+        //   (1) team_a == team_b  (C is outsider)
+        //   (2) team_a == team_c  (B is outsider)
+        //   (3) team_b == team_c  (A is outsider)
+        //
+        // There are only two teams (Red/Blue), so at least two clients always
+        // share a team.  The "all different teams" branch is impossible here.
+        let (sender_sink, sender_stream, teammate_stream, outsider_stream) =
+            if team_a == team_b {
+                // C is on the other team
+                (&mut sink_a, &mut stream_a, &mut stream_b, &mut stream_c)
+            } else if team_a == team_c {
+                // B is on the other team
+                (&mut sink_a, &mut stream_a, &mut stream_c, &mut stream_b)
+            } else {
+                // team_b == team_c; A is on the other team
+                (&mut sink_b, &mut stream_b, &mut stream_c, &mut stream_a)
+            };
 
-    send(sender_sink, &ClientMessage::SayTeam { text: "team-only".to_string() }).await;
+        send(sender_sink, &ClientMessage::SayTeam { text: "team-only".to_string() }).await;
 
-    // Sender receives the broadcast (team_filter == sender's team).
-    let got_sender = recv(sender_stream).await;
-    assert!(
-        matches!(got_sender, ServerMessage::Message { .. }),
-        "sender should receive own SayTeam, got {got_sender:?}"
-    );
+        // Sender receives the broadcast (team_filter == sender's team).
+        let got_sender = recv(sender_stream).await;
+        assert!(
+            matches!(got_sender, ServerMessage::Message { .. }),
+            "sender should receive own SayTeam, got {got_sender:?}"
+        );
 
-    // Teammate also receives it.
-    let got_teammate = recv(teammate_stream).await;
-    assert!(
-        matches!(got_teammate, ServerMessage::Message { .. }),
-        "teammate should receive SayTeam, got {got_teammate:?}"
-    );
+        // Teammate also receives it.
+        let got_teammate = recv(teammate_stream).await;
+        assert!(
+            matches!(got_teammate, ServerMessage::Message { .. }),
+            "teammate should receive SayTeam, got {got_teammate:?}"
+        );
 
-    // Outsider must NOT receive it within 1 second.
-    let nothing = recv_timeout(outsider_stream, Duration::from_secs(1)).await;
-    assert!(
-        nothing.is_err(),
-        "outsider must NOT receive SayTeam, but got: {nothing:?}"
-    );
+        // Outsider must NOT receive it within 1 second.
+        let nothing = recv_timeout(outsider_stream, Duration::from_secs(1)).await;
+        assert!(
+            nothing.is_err(),
+            "outsider must NOT receive SayTeam, but got: {nothing:?}"
+        );
+
+        return; // test passed
+    }
 }
 
 /// Sending 11 messages in a burst triggers at least one `RateLimited` response.
