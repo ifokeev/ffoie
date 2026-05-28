@@ -11,6 +11,10 @@
 // compilation so that cargo build -p ffoie catches any errors in network.rs.
 pub mod network;
 
+// Chat HUD state and egui panel renderer (plan 03-04).
+// Compiles on all platforms; drain_network + render_panel are native-only.
+pub mod chat;
+
 use std::collections::HashSet;
 use std::sync::{Arc, OnceLock};
 // `web_time` re-exports `std::time` on native and provides browser-backed
