@@ -24,3 +24,10 @@
 # Build artefacts that may end up alongside source on some systems
 *.pdb
 *.exe
+
+# GSD planning workspace (local-only)
+/.planning/
+
+# k6 soak test runtime output (generated, not source)
+/scripts/soak/server-rss.log
+/scripts/soak/soak-results.json
