@@ -59,6 +59,31 @@ impl Config {
         let scrollback_size = parse_or_default("FFOIE_CHAT_SCROLLBACK_SIZE", 50usize)?;
         let max_lag_disconnects = parse_or_default("FFOIE_CHAT_MAX_LAG_DISCONNECTS", 3u32)?;
 
+        // Reject zero values that would otherwise blow up at runtime:
+        //  - heartbeat_secs == 0 → `interval(Duration::ZERO)` panics on the
+        //    first connection.
+        //  - rate_refill_per_sec == 0 → the token bucket never refills after the
+        //    initial burst (permanent lockout) and `retry_after_ms` divides by 0.
+        //  - the remaining sizes must be positive to be meaningful.
+        if heartbeat_secs == 0 {
+            return Err("FFOIE_CHAT_HEARTBEAT_SECS must be >= 1".into());
+        }
+        if rate_refill_per_sec == 0 {
+            return Err("FFOIE_CHAT_RATE_REFILL_PER_SEC must be >= 1".into());
+        }
+        if rate_burst == 0 {
+            return Err("FFOIE_CHAT_RATE_BURST must be >= 1".into());
+        }
+        if max_msg_bytes == 0 {
+            return Err("FFOIE_CHAT_MAX_MSG_BYTES must be >= 1".into());
+        }
+        if broadcast_capacity == 0 {
+            return Err("FFOIE_CHAT_BROADCAST_CAPACITY must be >= 1".into());
+        }
+        if scrollback_size == 0 {
+            return Err("FFOIE_CHAT_SCROLLBACK_SIZE must be >= 1".into());
+        }
+
         Ok(Self {
             bind,
             motd,

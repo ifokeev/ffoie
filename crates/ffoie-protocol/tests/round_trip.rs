@@ -19,16 +19,49 @@ fn team_serializes_lowercase() {
     assert_eq!(serde_json::to_string(&Team::Blue).unwrap(), "\"blue\"");
     assert_eq!(serde_json::to_string(&Team::None).unwrap(), "\"none\"");
     assert_eq!(serde_json::from_str::<Team>("\"red\"").unwrap(), Team::Red);
-    assert_eq!(serde_json::from_str::<Team>("\"blue\"").unwrap(), Team::Blue);
-    assert_eq!(serde_json::from_str::<Team>("\"none\"").unwrap(), Team::None);
+    assert_eq!(
+        serde_json::from_str::<Team>("\"blue\"").unwrap(),
+        Team::Blue
+    );
+    assert_eq!(
+        serde_json::from_str::<Team>("\"none\"").unwrap(),
+        Team::None
+    );
 }
 
 #[test]
 fn channel_serializes_lowercase() {
     assert_eq!(serde_json::to_string(&Channel::All).unwrap(), "\"all\"");
     assert_eq!(serde_json::to_string(&Channel::Team).unwrap(), "\"team\"");
-    assert_eq!(serde_json::from_str::<Channel>("\"all\"").unwrap(), Channel::All);
-    assert_eq!(serde_json::from_str::<Channel>("\"team\"").unwrap(), Channel::Team);
+    assert_eq!(
+        serde_json::from_str::<Channel>("\"all\"").unwrap(),
+        Channel::All
+    );
+    assert_eq!(
+        serde_json::from_str::<Channel>("\"team\"").unwrap(),
+        Channel::Team
+    );
+}
+
+// ── Forward compatibility ─────────────────────────────────────────────────────
+
+#[test]
+fn unknown_field_on_known_variant_is_ignored() {
+    // A newer server may add fields to an existing variant. serde's default is
+    // to ignore unknown struct fields, so an older client must still decode it
+    // (not error). This locks that behaviour in so a future `#[serde(deny_...)]`
+    // can't silently break wire compatibility.
+    let json = r#"{"type":"pong","seq":7,"server_version":"2.0","extra":true}"#;
+    let parsed: ServerMessage = serde_json::from_str(json).unwrap();
+    assert_eq!(parsed, ServerMessage::Pong { seq: 7 });
+}
+
+#[test]
+fn unknown_variant_is_a_clean_error_not_a_panic() {
+    // A brand-new server message type must produce a recoverable Err (which the
+    // engine logs and skips), never a panic.
+    let json = r#"{"type":"system_broadcast","text":"server restarting"}"#;
+    assert!(serde_json::from_str::<ServerMessage>(json).is_err());
 }
 
 // ── ClientMessage round-trip tests ────────────────────────────────────────────

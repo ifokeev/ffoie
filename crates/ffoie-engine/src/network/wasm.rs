@@ -62,8 +62,10 @@ fn backoff_delay_ms(attempt: u32) -> u32 {
     }
     let exponent = (attempt - 1).min(14);
     let base_ms = (1_000u32 << exponent).min(30_000);
-    // js_sys::Math::random() returns f64 in [0.0, 1.0).
-    (js_sys::Math::random() * base_ms as f64) as u32
+    // js_sys::Math::random() returns f64 in [0.0, 1.0). Scale by (base_ms + 1)
+    // and clamp so the result is inclusive [0, base_ms], matching native's
+    // `fastrand::u64(0..=base_ms)`.
+    ((js_sys::Math::random() * (base_ms as f64 + 1.0)) as u32).min(base_ms)
 }
 
 // ── Internal helpers ──────────────────────────────────────────────────────────
@@ -250,13 +252,14 @@ async fn network_loop(
             }
         };
 
-        // Reset attempt counter on successful connect (will be set to 1 on
-        // the next reconnect iteration via `attempt += 1` at the top).
-        attempt = 0;
-
         // ── Wait for WsEvent::Opened ───────────────────────────────────────
+        // NOTE: we deliberately do NOT reset `attempt` before/after the open
+        // check. Resetting before `wait_for_open` let a flapping server (accepts
+        // then closes before Opened) drive a zero-delay reconnect storm. After a
+        // *healthy* session the backoff is reset by the Closed/Error arms in the
+        // per-connection loop below, so the "reconnect promptly after a good
+        // session" behaviour is preserved without a redundant reset here.
         if !wait_for_open(&ws_rx).await {
-            // Received Closed or Error before Opened.
             let _ = event_tx.send(NetworkEvent::Disconnected);
             continue 'reconnect;
         }
@@ -358,12 +361,22 @@ async fn network_loop(
 /// Poll `ws_rx` until `WsEvent::Opened`, `WsEvent::Closed`, or
 /// `WsEvent::Error`.  Returns `true` if the connection was opened.
 async fn wait_for_open(ws_rx: &ewebsock::WsReceiver) -> bool {
+    // Bounded by a 10s deadline so a half-open connect can't stall the reconnect
+    // loop (or block a pending Shutdown) indefinitely.
+    let mut waited_ms: u32 = 0;
     loop {
         match ws_rx.try_recv() {
             Some(WsEvent::Opened) => return true,
             Some(WsEvent::Closed) | Some(WsEvent::Error(_)) => return false,
             Some(_) => {}
-            None => TimeoutFuture::new(5).await,
+            None => {
+                if waited_ms >= 10_000 {
+                    log::warn!("[network/wasm] timed out waiting for WS to open");
+                    return false;
+                }
+                TimeoutFuture::new(5).await;
+                waited_ms += 5;
+            }
         }
     }
 }

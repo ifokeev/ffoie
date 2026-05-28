@@ -5,10 +5,11 @@
 # The chat URL is baked at compile time via option_env!("FFOIE_CHAT_URL").
 # For the compose stack the default targets the host-mapped chat-server port
 # so the BROWSER (which runs on the host, not inside docker) connects to
-# ws://localhost:8080/ws. Override with `--build-arg FFOIE_CHAT_URL=wss://...`
-# at build time for other deploy targets.
+# ws://localhost:47820/ws. Override with `--build-arg FFOIE_CHAT_URL=wss://...`
+# at build time for other deploy targets. (Default matches compose.yml's
+# FFOIE_CHAT_PORT so a standalone `docker build` bakes a working URL too.)
 
-ARG FFOIE_CHAT_URL=ws://localhost:8080/ws
+ARG FFOIE_CHAT_URL=ws://localhost:47820/ws
 
 # ---------- Stage 1: build the wasm bundle ----------
 FROM rust:1.95-slim AS builder
@@ -20,7 +21,17 @@ RUN apt-get update \
  && rustup target add wasm32-unknown-unknown
 
 # Install trunk from a prebuilt binary (faster than `cargo install trunk`).
-RUN curl -fsSL https://github.com/trunk-rs/trunk/releases/download/v0.21.14/trunk-x86_64-unknown-linux-gnu.tar.gz \
+# Pick the binary matching the build platform so ARM64 hosts (Apple silicon,
+# Graviton CI) work too. TARGETARCH is provided automatically by BuildKit;
+# it falls back to amd64 for classic (non-BuildKit) builds.
+ARG TARGETARCH
+RUN set -eux; \
+    case "${TARGETARCH:-amd64}" in \
+      amd64) trunk_arch=x86_64-unknown-linux-gnu ;; \
+      arm64) trunk_arch=aarch64-unknown-linux-gnu ;; \
+      *) echo "unsupported TARGETARCH=${TARGETARCH}" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL "https://github.com/trunk-rs/trunk/releases/download/v0.21.14/trunk-${trunk_arch}.tar.gz" \
       | tar -xz -C /usr/local/bin
 
 WORKDIR /build

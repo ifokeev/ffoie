@@ -49,10 +49,7 @@ pub enum NetworkEvent {
     /// Response to `NetworkCommand::Who`.
     WhoList(Vec<PlayerEntry>),
     /// The reconnect loop is waiting before the next attempt.
-    Reconnecting {
-        attempt: u32,
-        delay_ms: u64,
-    },
+    Reconnecting { attempt: u32, delay_ms: u64 },
     /// WebSocket connection was closed (raised before `Reconnecting`).
     Disconnected,
 }

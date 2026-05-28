@@ -12,7 +12,6 @@ tokio-util = { version = "0.7", features = ["rt"] }
 
 # Web framework
 axum = { version = "0.8", features = ["ws"] }
-futures-util = "0.3"
 
 # Middleware
 tower-http = { version = "0.6", features = ["cors", "trace"] }
@@ -39,5 +38,7 @@ uuid = { workspace = true }
 ffoie-protocol = { path = "../ffoie-protocol" }
 
 [dev-dependencies]
+# Only the WS integration tests (tests/ws_smoke.rs) use the Sink/Stream combinators.
+futures-util = "0.3"
 tokio-tungstenite = { version = "0.29", features = ["rustls-tls-webpki-roots"] }
 libc = "0.2"

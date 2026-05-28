@@ -50,8 +50,19 @@ pub fn assign_nick(requested: &str, taken: &HashSet<String>) -> String {
         }
     }
 
-    // Last-resort fallback.
-    format!("guest#{:04}", fastrand::u32(0..10000))
+    // Last-resort fallback: a `guest#NNNN` that is actually free. With far
+    // fewer than 10k concurrent connections the space can't be exhausted, but
+    // we still verify against `taken` rather than risk handing out a duplicate.
+    for _ in 0..10 {
+        let candidate = format!("guest#{:04}", fastrand::u32(0..10000));
+        if !taken.contains(&candidate) {
+            return candidate;
+        }
+    }
+
+    // Pathological case (>10k guests taken): widen the suffix to guarantee a
+    // free name instead of looping forever.
+    format!("guest#{:08}", fastrand::u32(0..100_000_000))
 }
 
 // ── Team assignment ───────────────────────────────────────────────────────────
@@ -109,7 +120,7 @@ mod tests {
     #[test]
     fn truncation_counts_unicode_scalars_not_bytes() {
         // Each '€' is 3 bytes but 1 code point.
-        let long: String = std::iter::repeat('€').take(25).collect();
+        let long: String = "€".repeat(25);
         let result = normalize_nick(&long);
         assert_eq!(result.chars().count(), 20);
     }

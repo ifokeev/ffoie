@@ -17,8 +17,10 @@ log = "0.4"
 ktx2 = "0.5"
 egui = "0.34"
 egui-wgpu = "0.34"
-# default-features disabled to drop `arboard` (clipboard) which doesn't
-# build for wasm32 and we don't need anywhere (no text-input UI).
+# default-features disabled to drop `arboard` (clipboard), which doesn't build
+# for wasm32. The chat TextEdit needs paste, so clipboard is re-enabled for
+# native targets only in the `cfg(not(wasm32))` block below; on wasm32 the
+# browser handles clipboard natively.
 egui-winit = { version = "0.34", default-features = false, features = ["links"] }
 gltf = { version = "1.4", default-features = false, features = ["import", "utils", "names"] }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
@@ -32,6 +34,10 @@ serde_json = "1"
 
 # Native-only deps
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+# Re-enable egui-winit's clipboard (arboard) on native so Ctrl+V works in the
+# chat input. Features unify with the cross-platform entry above; wasm32 skips
+# this block, so arboard is never pulled into the web build.
+egui-winit = { version = "0.34", default-features = false, features = ["links", "clipboard"] }
 env_logger = "0.11"
 pollster = "0.4"
 # WebSocket client: cross-platform ewebsock (uses tokio-tungstenite on native,

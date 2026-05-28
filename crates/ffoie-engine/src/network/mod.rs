@@ -14,7 +14,9 @@ pub mod native;
 // Re-export shared types at the module root so all call sites stay unchanged.
 pub use types::{AppEvent, NetworkCommand, NetworkEvent, NetworkHandle};
 
-// Re-export the start() entry point and backoff helper for native builds.
+// Re-export the start() entry point and the backoff helper for native builds.
+// (`backoff_delay_ms` is consumed by native.rs's unit tests; the re-export
+// keeps it reachable so the binary crate doesn't flag it as dead code.)
 #[cfg(not(target_arch = "wasm32"))]
 pub use native::{backoff_delay_ms, start};
 

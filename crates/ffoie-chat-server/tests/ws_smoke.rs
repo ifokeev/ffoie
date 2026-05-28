@@ -57,9 +57,7 @@ async fn spawn_test_server_with_config(config: Config) -> u16 {
     port
 }
 
-async fn spawn_test_server_with_state(
-    config: Config,
-) -> (ffoie_chat_server::state::AppState, u16) {
+async fn spawn_test_server_with_state(config: Config) -> (ffoie_chat_server::state::AppState, u16) {
     let listener = TcpListener::bind("127.0.0.1:0")
         .await
         .expect("failed to bind ephemeral port");
@@ -69,9 +67,7 @@ async fn spawn_test_server_with_state(
     let state_clone = state.clone();
 
     tokio::spawn(async move {
-        axum::serve(listener, app)
-            .await
-            .expect("test server error");
+        axum::serve(listener, app).await.expect("test server error");
     });
 
     (state_clone, port)
@@ -125,7 +121,9 @@ fn decode(frame: Message) -> ServerMessage {
 /// Panics on timeout (3 s) or stream close.
 async fn recv(stream: &mut WsStream) -> ServerMessage {
     loop {
-        let frame = next_frame(stream).await.expect("WS stream closed unexpectedly");
+        let frame = next_frame(stream)
+            .await
+            .expect("WS stream closed unexpectedly");
         match frame {
             Message::Text(t) => {
                 return serde_json::from_str::<ServerMessage>(&t)
@@ -153,12 +151,23 @@ async fn send_connect(
     nick: &str,
     team: Team,
 ) -> (String, Team) {
-    send(sink, &ClientMessage::Connect { nickname: nick.to_string(), team }).await;
+    send(
+        sink,
+        &ClientMessage::Connect {
+            nickname: nick.to_string(),
+            team,
+        },
+    )
+    .await;
 
     loop {
         let msg = recv(stream).await;
         match msg {
-            ServerMessage::Welcome { assigned_nick, assigned_team, .. } => {
+            ServerMessage::Welcome {
+                assigned_nick,
+                assigned_team,
+                ..
+            } => {
                 assert!(!assigned_nick.is_empty(), "assigned_nick must not be empty");
                 return (assigned_nick, assigned_team);
             }
@@ -217,7 +226,13 @@ async fn two_clients_chat() {
         "B should see own join notification, got {notif_b:?}"
     );
 
-    send(&mut sink_a, &ClientMessage::Say { text: "hello from A".to_string() }).await;
+    send(
+        &mut sink_a,
+        &ClientMessage::Say {
+            text: "hello from A".to_string(),
+        },
+    )
+    .await;
 
     // B receives the broadcast.
     let msg = recv(&mut stream_b).await;
@@ -268,12 +283,11 @@ async fn team_filter() {
         // Drain each stream for up to 500 ms, stopping early once the stream
         // goes quiet (no frame within 50 ms = notifications have settled).
         async fn drain_until_quiet(stream: &mut WsStream) {
-            loop {
-                match recv_timeout(stream, Duration::from_millis(50)).await {
-                    Ok(_) => continue,
-                    Err(_) => break, // quiet
-                }
-            }
+            // Keep draining until a 50 ms gap (no frame) signals the stream is quiet.
+            while recv_timeout(stream, Duration::from_millis(50))
+                .await
+                .is_ok()
+            {}
         }
         drain_until_quiet(&mut stream_a).await;
         drain_until_quiet(&mut stream_b).await;
@@ -306,19 +320,24 @@ async fn team_filter() {
         //
         // There are only two teams (Red/Blue), so at least two clients always
         // share a team.  The "all different teams" branch is impossible here.
-        let (sender_sink, sender_stream, teammate_stream, outsider_stream) =
-            if team_a == team_b {
-                // C is on the other team
-                (&mut sink_a, &mut stream_a, &mut stream_b, &mut stream_c)
-            } else if team_a == team_c {
-                // B is on the other team
-                (&mut sink_a, &mut stream_a, &mut stream_c, &mut stream_b)
-            } else {
-                // team_b == team_c; A is on the other team
-                (&mut sink_b, &mut stream_b, &mut stream_c, &mut stream_a)
-            };
+        let (sender_sink, sender_stream, teammate_stream, outsider_stream) = if team_a == team_b {
+            // C is on the other team
+            (&mut sink_a, &mut stream_a, &mut stream_b, &mut stream_c)
+        } else if team_a == team_c {
+            // B is on the other team
+            (&mut sink_a, &mut stream_a, &mut stream_c, &mut stream_b)
+        } else {
+            // team_b == team_c; A is on the other team
+            (&mut sink_b, &mut stream_b, &mut stream_c, &mut stream_a)
+        };
 
-        send(sender_sink, &ClientMessage::SayTeam { text: "team-only".to_string() }).await;
+        send(
+            sender_sink,
+            &ClientMessage::SayTeam {
+                text: "team-only".to_string(),
+            },
+        )
+        .await;
 
         // Sender receives the broadcast (team_filter == sender's team).
         let got_sender = recv(sender_stream).await;
@@ -358,7 +377,13 @@ async fn rate_limit() {
 
     // Send 11 Say messages as fast as possible.
     for i in 0..11u32 {
-        send(&mut sink, &ClientMessage::Say { text: format!("msg{i}") }).await;
+        send(
+            &mut sink,
+            &ClientMessage::Say {
+                text: format!("msg{i}"),
+            },
+        )
+        .await;
     }
 
     // Collect responses — some will be Message (broadcast), at least one RateLimited.
@@ -374,7 +399,10 @@ async fn rate_limit() {
         }
     }
 
-    assert!(got_rate_limited, "expected at least one RateLimited after 11 burst messages");
+    assert!(
+        got_rate_limited,
+        "expected at least one RateLimited after 11 burst messages"
+    );
 }
 
 /// Sending a 501-byte message gets `Error { reason: "... too long ..." }`.
@@ -414,7 +442,13 @@ async fn scrollback_on_connect() {
     drain(&mut stream_a, 1).await; // own join notification
 
     for i in 0..3u32 {
-        send(&mut sink_a, &ClientMessage::Say { text: format!("history{i}") }).await;
+        send(
+            &mut sink_a,
+            &ClientMessage::Say {
+                text: format!("history{i}"),
+            },
+        )
+        .await;
         // Small pause so each Say is processed before the next.
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
@@ -428,7 +462,14 @@ async fn scrollback_on_connect() {
     let (mut sink_c, mut stream_c) = connect_ws(port).await;
     // Send Connect directly and read Welcome; we can use send_connect here because
     // there are no other live clients to cause interleaved JoinedLeft frames.
-    send(&mut sink_c, &ClientMessage::Connect { nickname: "Newcomer".to_string(), team: Team::Blue }).await;
+    send(
+        &mut sink_c,
+        &ClientMessage::Connect {
+            nickname: "Newcomer".to_string(),
+            team: Team::Blue,
+        },
+    )
+    .await;
 
     let frame = recv(&mut stream_c).await;
     match frame {
@@ -464,7 +505,11 @@ async fn joined_left_notifications() {
 
     let joined_notif = recv(&mut stream_b).await;
     match &joined_notif {
-        ServerMessage::JoinedLeft { nickname, joined: true, .. } => {
+        ServerMessage::JoinedLeft {
+            nickname,
+            joined: true,
+            ..
+        } => {
             assert_eq!(nickname, &nick_a, "join notification should name A's nick");
         }
         other => panic!("expected JoinedLeft(joined=true) for A on B's stream, got {other:?}"),
@@ -478,7 +523,11 @@ async fn joined_left_notifications() {
     // B should see JoinedLeft{joined:false}.
     let left_notif = recv(&mut stream_b).await;
     match left_notif {
-        ServerMessage::JoinedLeft { nickname, joined: false, .. } => {
+        ServerMessage::JoinedLeft {
+            nickname,
+            joined: false,
+            ..
+        } => {
             assert_eq!(nickname, nick_a, "left notification should name A's nick");
         }
         other => panic!("expected JoinedLeft(joined=false), got {other:?}"),
@@ -498,7 +547,10 @@ async fn nickname_collision() {
     // B also requests "Samebot"; it should get a suffixed variant.
     let (nick_b, _) = send_connect(&mut sink_b, &mut stream_b, "Samebot", Team::Blue).await;
 
-    assert_eq!(nick_a, "Samebot", "first client should keep the requested nick");
+    assert_eq!(
+        nick_a, "Samebot",
+        "first client should keep the requested nick"
+    );
     assert_ne!(
         nick_b, "Samebot",
         "second client must receive a deduplicated nick, got {nick_b:?}"
@@ -526,9 +578,9 @@ async fn nickname_collision() {
 /// sees the ring has lapped it and returns `Lagged`.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn lag_disconnect() {
-    use std::sync::Arc;
     use ffoie_chat_server::state::BroadcastEvent;
     use ffoie_protocol::{Channel, ChatMessage};
+    use std::sync::Arc;
 
     let config = Config {
         broadcast_capacity: 4,
@@ -605,17 +657,15 @@ async fn lag_disconnect() {
             let _ = tx.send(ev);
             j += 1;
             // Throttle to ~100K messages/sec to avoid overwhelming the runtime.
-            if j % 1000 == 0 {
+            if j.is_multiple_of(1000) {
                 std::thread::sleep(std::time::Duration::from_millis(1));
             }
         }
     });
     // Injector runs concurrently with the 5-second timeout.
     // Once disconnect_rx fires (server closed slow), we stop the injector.
-    let disconnect_result = tokio::time::timeout(Duration::from_secs(5), async {
-        disconnect_rx.await.ok()
-    })
-    .await;
+    let disconnect_result =
+        tokio::time::timeout(Duration::from_secs(5), async { disconnect_rx.await.ok() }).await;
     let _ = stop_tx.send(()); // stop the injector
     let _ = inject_handle.await;
 

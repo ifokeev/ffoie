@@ -3,7 +3,7 @@
 //! AppState is cheaply clonable (all fields are Arc or Copy) and is threaded
 //! through every axum handler + WebSocket task via axum's `State` extractor.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -16,6 +16,7 @@ use uuid::Uuid;
 use ffoie_protocol::{ChatMessage, PlayerEntry, ServerMessage, Team};
 
 use crate::config::Config;
+use crate::nickname::assign_nick;
 
 // ── Broadcast event ───────────────────────────────────────────────────────────
 
@@ -96,6 +97,29 @@ impl AppState {
         tracing::info!(connections = map.len(), "connection registered");
     }
 
+    /// Atomically assign a unique nickname AND register the connection under a
+    /// single `connections` lock, returning the assigned nickname.
+    ///
+    /// This closes the snapshot→assign→insert TOCTOU race: when two clients
+    /// `Connect` simultaneously, the taken-set snapshot, collision resolution,
+    /// and insert all happen while the same lock guard is held, so they can no
+    /// longer be handed the same nickname.
+    pub fn assign_and_register(&self, session_id: Uuid, requested: &str, team: Team) -> String {
+        let mut map = self.connections.lock();
+        let taken: HashSet<String> = map.values().map(|c| c.nickname.clone()).collect();
+        let nickname = assign_nick(requested, &taken);
+        map.insert(
+            session_id,
+            ConnInfo {
+                session_id,
+                nickname: nickname.clone(),
+                team,
+            },
+        );
+        tracing::info!(connections = map.len(), nickname = %nickname, "connection registered");
+        nickname
+    }
+
     /// Remove a connection by session ID.  Logs the updated count.
     pub fn remove_conn(&self, session_id: Uuid) {
         let mut map = self.connections.lock();
@@ -170,7 +194,11 @@ mod tests {
         }
 
         let snap = state.scrollback_snapshot();
-        assert_eq!(snap.len(), capacity, "ring should be at capacity after eviction");
+        assert_eq!(
+            snap.len(),
+            capacity,
+            "ring should be at capacity after eviction"
+        );
         // The first message ("user0") must have been evicted.
         assert!(
             !snap.iter().any(|m| m.from == "user0"),
@@ -189,8 +217,16 @@ mod tests {
 
         let id1 = Uuid::new_v4();
         let id2 = Uuid::new_v4();
-        state.register_conn(ConnInfo { session_id: id1, nickname: "Alice".into(), team: Team::Red });
-        state.register_conn(ConnInfo { session_id: id2, nickname: "Bob".into(), team: Team::Blue });
+        state.register_conn(ConnInfo {
+            session_id: id1,
+            nickname: "Alice".into(),
+            team: Team::Red,
+        });
+        state.register_conn(ConnInfo {
+            session_id: id2,
+            nickname: "Bob".into(),
+            team: Team::Blue,
+        });
 
         let list = state.who_list();
         assert_eq!(list.len(), 2);
@@ -200,10 +236,27 @@ mod tests {
     }
 
     #[test]
+    fn assign_and_register_dedups_nicknames() {
+        // Two clients requesting the same name under the single-lock path must
+        // get distinct nicknames and both be registered (TOCTOU race regression).
+        let state = AppState::new(test_config());
+        let n1 = state.assign_and_register(Uuid::new_v4(), "Fox", Team::Red);
+        let n2 = state.assign_and_register(Uuid::new_v4(), "Fox", Team::Blue);
+        assert_eq!(n1, "Fox", "first Fox keeps the bare name");
+        assert_ne!(n1, n2, "second Fox must get a unique suffix");
+        assert!(n2.starts_with("Fox#"), "expected suffixed nick, got {n2}");
+        assert_eq!(state.connection_count(), 2);
+    }
+
+    #[test]
     fn remove_conn_decrements_count() {
         let state = AppState::new(test_config());
         let id = Uuid::new_v4();
-        state.register_conn(ConnInfo { session_id: id, nickname: "Ghost".into(), team: Team::Red });
+        state.register_conn(ConnInfo {
+            session_id: id,
+            nickname: "Ghost".into(),
+            team: Team::Red,
+        });
         assert_eq!(state.connection_count(), 1);
         state.remove_conn(id);
         assert_eq!(state.connection_count(), 0);

@@ -77,7 +77,8 @@ pub struct ChatState {
     /// Current connection health.
     pub connection_status: ConnectionStatus,
     /// Monotonically-increasing ping sequence number (for heartbeat tracking).
-    #[allow(dead_code)] // field written by network layer; read access deferred to v1.1.x missed-pong detection
+    #[allow(dead_code)]
+    // field written by network layer; read access deferred to v1.1.x missed-pong detection
     pub(crate) ping_seq: u32,
 }
 
@@ -217,10 +218,7 @@ mod native {
             } => {
                 let action = if *joined { "joined" } else { "left" };
                 let team_str = team_label(*team);
-                state.push_system(format!(
-                    "[server] {} ({}) {}",
-                    nickname, team_str, action
-                ));
+                state.push_system(format!("[server] {} ({}) {}", nickname, team_str, action));
             }
             NetworkEvent::WhoList(players) => {
                 let list = players
@@ -313,18 +311,13 @@ mod native {
             )
             .show(ctx, |ui| {
                 // ── Reconnecting badge ───────────────────────────────────────
-                if let ConnectionStatus::Reconnecting { attempt, .. } =
-                    &state.connection_status
-                {
-                    ui.with_layout(
-                        egui::Layout::right_to_left(egui::Align::TOP),
-                        |ui| {
-                            ui.colored_label(
-                                egui::Color32::from_rgb(255, 200, 60),
-                                format!("Reconnecting… (attempt {})", attempt),
-                            );
-                        },
-                    );
+                if let ConnectionStatus::Reconnecting { attempt, .. } = &state.connection_status {
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
+                        ui.colored_label(
+                            egui::Color32::from_rgb(255, 200, 60),
+                            format!("Reconnecting… (attempt {})", attempt),
+                        );
+                    });
                 }
 
                 // ── Header: nick + team indicator ────────────────────────────
@@ -333,10 +326,7 @@ mod native {
                     ui.horizontal(|ui| {
                         ui.colored_label(team_color, format!("[{}]", nick));
                         if !state.chat_active {
-                            ui.colored_label(
-                                egui::Color32::from_gray(120),
-                                "T: chat  Y: team",
-                            );
+                            ui.colored_label(egui::Color32::from_gray(120), "T: chat  Y: team");
                         }
                     });
                 } else if matches!(
@@ -361,10 +351,7 @@ mod native {
                             .show(ui, |ui| {
                                 // System messages in subdued gray.
                                 for sys in state.system_messages.iter() {
-                                    ui.colored_label(
-                                        egui::Color32::from_gray(160),
-                                        sys,
-                                    );
+                                    ui.colored_label(egui::Color32::from_gray(160), sys);
                                 }
                                 // Chat messages with Quake color codes.
                                 for msg in state.messages.iter() {
@@ -388,14 +375,10 @@ mod native {
                 // ── Input box (only when chat_active) ────────────────────────
                 if state.chat_active {
                     let (label, label_color) = match state.channel {
-                        Channel::All => (
-                            "[ALL] ",
-                            egui::Color32::from_gray(200),
-                        ),
-                        Channel::Team => (
-                            "[TEAM] ",
-                            team_to_color(state.team.unwrap_or(Team::None)),
-                        ),
+                        Channel::All => ("[ALL] ", egui::Color32::from_gray(200)),
+                        Channel::Team => {
+                            ("[TEAM] ", team_to_color(state.team.unwrap_or(Team::None)))
+                        }
                     };
 
                     ui.horizontal(|ui| {
@@ -407,9 +390,7 @@ mod native {
                         );
                         response.request_focus();
 
-                        if response.lost_focus()
-                            && ui.input(|i| i.key_pressed(egui::Key::Enter))
-                        {
+                        if response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
                             let text = state.input_buffer.trim().to_string();
                             if !text.is_empty() {
                                 if text.to_ascii_lowercase().starts_with("/who") {
@@ -532,10 +513,13 @@ pub fn parse_colors(text: &str) -> Vec<(Color32, String)> {
                     i += 2; // consume `^N`
                     continue;
                 }
-                // Unknown code (^8, ^9, ^Z, ^^, etc.) — emit as literal text.
+                // Unknown code (^8, ^9, ^Z, ^^, etc.) — emit the caret literally
+                // and advance ONLY past it. The next loop iteration re-decodes
+                // `next` as a full UTF-8 char via the else-branch below, so a
+                // multi-byte char after `^` (e.g. `^é`) never lands `i` mid-
+                // codepoint (which previously panicked at `chars().next()`).
                 current_span.push('^');
-                current_span.push(next as char);
-                i += 2;
+                i += 1;
             } else {
                 // Trailing `^` at end of string — emit as literal.
                 current_span.push('^');
@@ -629,6 +613,21 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_colors_caret_before_multibyte_does_not_panic() {
+        // Regression: a `^` followed by a multi-byte UTF-8 char must not split a
+        // codepoint. Previously `i += 2` after `^` landed on a continuation byte
+        // and the next `text[i..].chars().next().unwrap()` panicked with
+        // "byte index N is not a char boundary". Reachable from any peer message.
+        // None of these inputs contain a valid ^0-^7 code, so every caret is
+        // literal and the spans must reassemble to exactly the input.
+        for input in ["^é", "^中", "a^ñb", "^😀", "^^é", "^", "^\u{0}"] {
+            let spans = parse_colors(input);
+            let joined: String = spans.into_iter().map(|(_, s)| s).collect();
+            assert_eq!(joined, input, "round-trip mismatch for {input:?}");
+        }
+    }
+
+    #[test]
     fn test_parse_colors_all_codes() {
         // Verify each ^0..^7 code produces a non-empty flush and switches color.
         let text = "^0a^1b^2c^3d^4e^5f^6g^7h";
@@ -680,7 +679,10 @@ mod tests {
             state.input_buffer = "/who".to_string();
             let cmd = submit(&mut state);
             assert!(matches!(cmd, Some(NetworkCommand::Who)));
-            assert!(!state.chat_active, "chat_active must be cleared after submit");
+            assert!(
+                !state.chat_active,
+                "chat_active must be cleared after submit"
+            );
             assert!(state.input_buffer.is_empty());
         }
 
@@ -732,7 +734,10 @@ mod tests {
             state.input_buffer = "".to_string();
             let cmd = submit(&mut state);
             assert!(cmd.is_none());
-            assert!(!state.chat_active, "chat_active must be cleared even on empty submit");
+            assert!(
+                !state.chat_active,
+                "chat_active must be cleared even on empty submit"
+            );
         }
 
         #[test]
@@ -783,10 +788,7 @@ mod tests {
             ));
             // MOTD should appear in system messages.
             assert!(
-                state
-                    .system_messages
-                    .iter()
-                    .any(|s| s.contains("Welcome!")),
+                state.system_messages.iter().any(|s| s.contains("Welcome!")),
                 "MOTD must appear in system_messages"
             );
             // Scrollback should appear in messages.

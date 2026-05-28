@@ -23,7 +23,7 @@
 #![cfg(not(target_arch = "wasm32"))]
 
 use std::sync::mpsc::{self, Receiver, Sender};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use ewebsock::{WsEvent, WsMessage, WsSender};
 use ffoie_protocol::{ClientMessage, ServerMessage, Team};
@@ -49,15 +49,17 @@ pub fn start(proxy: EventLoopProxy<AppEvent>) -> NetworkHandle {
     // Resolve URL: build-time bake-in wins; runtime env var overrides that;
     // finally fall back to the hard-coded localhost default.
     let compile_time_url = option_env!("FFOIE_CHAT_URL").unwrap_or("ws://localhost:8080/ws");
-    let url = std::env::var("FFOIE_CHAT_URL")
-        .unwrap_or_else(|_| compile_time_url.to_owned());
+    let url = std::env::var("FFOIE_CHAT_URL").unwrap_or_else(|_| compile_time_url.to_owned());
 
     let nick = std::env::var("FFOIE_NICK").unwrap_or_else(|_| "guest".to_owned());
 
+    // `.max(1)` guards against FFOIE_CHAT_HEARTBEAT_SECS=0, which would make
+    // `tokio::time::interval(Duration::from_secs(0))` panic.
     let heartbeat_secs: u64 = std::env::var("FFOIE_CHAT_HEARTBEAT_SECS")
         .ok()
         .and_then(|v| v.parse().ok())
-        .unwrap_or(15);
+        .unwrap_or(15)
+        .max(1);
 
     let (event_tx, event_rx) = mpsc::channel::<NetworkEvent>();
     let (cmd_tx, cmd_rx) = mpsc::channel::<NetworkCommand>();
@@ -68,7 +70,14 @@ pub fn start(proxy: EventLoopProxy<AppEvent>) -> NetworkHandle {
             .enable_all()
             .build()
             .expect("failed to build tokio runtime for network thread");
-        rt.block_on(network_loop(url, nick, heartbeat_secs, event_tx, cmd_rx, proxy));
+        rt.block_on(network_loop(
+            url,
+            nick,
+            heartbeat_secs,
+            event_tx,
+            cmd_rx,
+            proxy,
+        ));
     });
 
     NetworkHandle {
@@ -90,9 +99,11 @@ pub fn backoff_delay_ms(attempt: u32) -> u64 {
     if attempt <= 1 {
         return 0;
     }
-    // base_ms = 1000 * 2^(attempt-1), capped at 30 000.
-    // Use saturating arithmetic to avoid overflow for large attempt counts.
-    let exponent = (attempt - 1).min(14) as u64; // 2^14 = 16384 → 16.384s < 30s; 2^15 > 30s
+    // base_ms = 1000 * 2^(attempt-1), capped at 30 000 by `.min(30_000)`.
+    // The exponent is capped at 14 only to prevent a u64 left-shift overflow
+    // (`1_000u64 << 64` is UB/panic); it is NOT the delay cap — `.min(30_000)`
+    // is what bounds the actual delay.
+    let exponent = (attempt - 1).min(14) as u64;
     let base_ms = (1_000u64 << exponent).min(30_000);
     fastrand::u64(0..=base_ms)
 }
@@ -199,13 +210,10 @@ async fn network_loop(
         // --- Connect ----------------------------------------------------------
         log::info!("[network] connecting to {url} (attempt {attempt})");
         let wakeup_proxy = proxy.clone();
-        let connect_result = ewebsock::connect_with_wakeup(
-            &url,
-            ewebsock::Options::default(),
-            move || {
+        let connect_result =
+            ewebsock::connect_with_wakeup(&url, ewebsock::Options::default(), move || {
                 let _ = wakeup_proxy.send_event(AppEvent::ChatWakeup);
-            },
-        );
+            });
 
         let (mut ws_tx, ws_rx) = match connect_result {
             Ok(pair) => pair,
@@ -215,18 +223,22 @@ async fn network_loop(
             }
         };
 
-        // Reset attempt counter on successful connect.
-        attempt = 0;
-
         // Wait for WsEvent::Opened before sending Connect.
         // ewebsock may deliver Opened asynchronously; poll until we see it.
         let opened = wait_for_open(&ws_rx).await;
         if !opened {
-            // Received Closed or Error before Opened.
+            // TCP connect succeeded but the socket closed/errored/timed out
+            // before Opened (server overload, upgrade rejection, slow connect).
+            // Do NOT reset `attempt` here — otherwise a flapping server drives a
+            // zero-delay reconnect storm. Keep the backoff growing.
             let _ = event_tx.send(NetworkEvent::Disconnected);
             let _ = proxy.send_event(AppEvent::ChatWakeup);
             continue 'reconnect;
         }
+
+        // Connection is fully open — only now reset the backoff counter so the
+        // next drop after a healthy session reconnects promptly.
+        attempt = 0;
 
         // Send the Connect handshake.
         ws_send(
@@ -241,11 +253,26 @@ async fn network_loop(
         let mut heartbeat = tokio::time::interval(Duration::from_secs(heartbeat_secs));
         heartbeat.tick().await; // consume the immediate first tick
         let mut ping_seq: u32 = 0;
+        // Missed-pong / dead-link detection: the server sends a Pong every
+        // heartbeat and answers our Pings, so we should hear *something* within
+        // one interval. If nothing arrives for two intervals the link is dead
+        // (e.g. a frozen or half-open server) and we force a reconnect.
+        let mut last_recv = Instant::now();
+        let dead_link_timeout = Duration::from_secs(heartbeat_secs.saturating_mul(2).max(2));
 
         loop {
             tokio::select! {
                 // Heartbeat arm.
                 _ = heartbeat.tick() => {
+                    if last_recv.elapsed() > dead_link_timeout {
+                        log::warn!(
+                            "[network] no server traffic for {}s — assuming dead link, reconnecting",
+                            dead_link_timeout.as_secs()
+                        );
+                        let _ = event_tx.send(NetworkEvent::Disconnected);
+                        let _ = proxy.send_event(AppEvent::ChatWakeup);
+                        continue 'reconnect;
+                    }
                     ws_send(&mut ws_tx, &ClientMessage::Ping { seq: ping_seq });
                     ping_seq = ping_seq.wrapping_add(1);
                 }
@@ -256,6 +283,8 @@ async fn network_loop(
                     loop {
                         match ws_rx.try_recv() {
                             Some(WsEvent::Message(WsMessage::Text(json))) => {
+                                // Any inbound server traffic proves the link is alive.
+                                last_recv = Instant::now();
                                 match serde_json::from_str::<ServerMessage>(&json) {
                                     Ok(msg) => {
                                         // T-03-03-02 / T-03-03-03: serde
@@ -329,13 +358,24 @@ async fn network_loop(
 
 /// Poll `ws_rx` until we see `WsEvent::Opened`, `WsEvent::Closed`, or
 /// `WsEvent::Error`.  Returns `true` if the connection was opened.
+///
+/// Bounded by a 10s deadline so a half-open connect (the OS TCP connect timeout
+/// can be 75s+) can't stall the reconnect loop — and pending `Shutdown`
+/// commands aren't blocked for the full kernel timeout.
 async fn wait_for_open(ws_rx: &ewebsock::WsReceiver) -> bool {
+    let deadline = Instant::now() + Duration::from_secs(10);
     loop {
         match ws_rx.try_recv() {
             Some(WsEvent::Opened) => return true,
             Some(WsEvent::Closed) | Some(WsEvent::Error(_)) => return false,
             Some(_) => {} // other events before Opened; keep waiting
-            None => tokio::time::sleep(Duration::from_millis(5)).await,
+            None => {
+                if Instant::now() >= deadline {
+                    log::warn!("[network] timed out waiting for WS to open");
+                    return false;
+                }
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
         }
     }
 }
@@ -382,7 +422,10 @@ mod tests {
         for attempt in 6..=20 {
             for _ in 0..20 {
                 let d = backoff_delay_ms(attempt);
-                assert!(d <= 30_000, "attempt {attempt} delay exceeds 30s cap: {d}ms");
+                assert!(
+                    d <= 30_000,
+                    "attempt {attempt} delay exceeds 30s cap: {d}ms"
+                );
             }
         }
     }
@@ -407,9 +450,7 @@ mod tests {
     #[test]
     fn test_network_command_say_serializes() {
         let text = "hello world".to_owned();
-        let msg = ClientMessage::Say {
-            text: text.clone(),
-        };
+        let msg = ClientMessage::Say { text: text.clone() };
         let json = serde_json::to_string(&msg).expect("serialization failed");
         let round_tripped: ClientMessage =
             serde_json::from_str(&json).expect("deserialization failed");
@@ -419,9 +460,7 @@ mod tests {
     #[test]
     fn test_network_command_say_team_serializes() {
         let text = "go left".to_owned();
-        let msg = ClientMessage::SayTeam {
-            text: text.clone(),
-        };
+        let msg = ClientMessage::SayTeam { text: text.clone() };
         let json = serde_json::to_string(&msg).unwrap();
         let rt: ClientMessage = serde_json::from_str(&json).unwrap();
         assert_eq!(rt, ClientMessage::SayTeam { text });

@@ -58,10 +58,7 @@ pub struct PlayerEntry {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ClientMessage {
     /// First message after WS open — associates nickname and team.
-    Connect {
-        nickname: String,
-        team: Team,
-    },
+    Connect { nickname: String, team: Team },
     /// Global (all-chat) message. Equivalent to Quake `say`.
     Say { text: String },
     /// Team-filtered message. Equivalent to Quake `say_team`.

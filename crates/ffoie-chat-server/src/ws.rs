@@ -28,7 +28,6 @@
 //! If the broadcast ring laps a slow receiver, `RecvError::Lagged` is counted.
 //! After `config.max_lag_disconnects` consecutive lags the connection is closed.
 
-use std::collections::HashSet;
 use std::sync::Arc;
 
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
@@ -40,9 +39,9 @@ use uuid::Uuid;
 
 use ffoie_protocol::{Channel, ClientMessage, PlayerEntry, ServerMessage, Team};
 
-use crate::nickname::{assign_nick, assign_team};
+use crate::nickname::assign_team;
 use crate::rate_limit::TokenBucket;
-use crate::state::{AppState, BroadcastEvent, ConnInfo};
+use crate::state::{AppState, BroadcastEvent};
 
 // ── Public handler ────────────────────────────────────────────────────────────
 
@@ -51,17 +50,23 @@ use crate::state::{AppState, BroadcastEvent, ConnInfo};
 /// The per-connection task is registered with `state.task_tracker` so that
 /// the graceful-shutdown path in `main.rs` can await all tasks via
 /// `task_tracker.close()` + `task_tracker.wait()`.
-pub async fn ws_handler(
-    ws: WebSocketUpgrade,
-    State(state): State<AppState>,
-) -> impl IntoResponse {
-    ws.on_upgrade(move |socket| {
-        let fut = handle_socket(socket, state.clone());
-        // Register with the task tracker so main.rs shutdown can drain us.
-        state.task_tracker.spawn(fut);
-        // Return an already-resolved future — the work runs inside the tracker.
-        async {}
-    })
+pub async fn ws_handler(ws: WebSocketUpgrade, State(state): State<AppState>) -> impl IntoResponse {
+    // Reject oversized frames at the transport layer — BEFORE any allocation or
+    // JSON parse — so a client cannot force multi-MB allocations (the
+    // per-message `max_msg_bytes` check in the loop only fires post-parse).
+    // Every inbound client frame (Connect/Say/SayTeam/Ping/Who) is small, so a
+    // generous multiple of the byte cap is plenty and bounds worst-case memory
+    // at ~connections × this limit.
+    let frame_cap = state.config.max_msg_bytes.saturating_mul(8).max(16 * 1024);
+    ws.max_message_size(frame_cap)
+        .max_frame_size(frame_cap)
+        .on_upgrade(move |socket| {
+            let fut = handle_socket(socket, state.clone());
+            // Register with the task tracker so main.rs shutdown can drain us.
+            state.task_tracker.spawn(fut);
+            // Return an already-resolved future — the work runs inside the tracker.
+            async {}
+        })
 }
 
 // ── Per-connection task ───────────────────────────────────────────────────────
@@ -79,10 +84,8 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
     let mut my_team = Team::None;
     let mut lag_count: u32 = 0;
 
-    let mut rate_bucket = TokenBucket::new(
-        state.config.rate_burst,
-        state.config.rate_refill_per_sec,
-    );
+    let mut rate_bucket =
+        TokenBucket::new(state.config.rate_burst, state.config.rate_refill_per_sec);
 
     // Heartbeat interval — server sends a Pong periodically to keep NATs alive.
     let heartbeat_secs = state.config.heartbeat_secs;
@@ -94,7 +97,9 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
     // Reusable serialized-message helper (returns None on serialization error).
     macro_rules! to_text {
         ($msg:expr) => {
-            serde_json::to_string(&$msg).ok().map(|s| Message::Text(s.into()))
+            serde_json::to_string(&$msg)
+                .ok()
+                .map(|s| Message::Text(s.into()))
         };
     }
 
@@ -143,26 +148,18 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                         if !connected {
                             match client_msg {
                                 ClientMessage::Connect { nickname: req_nick, .. } => {
-                                    // Collect taken nicknames, then release lock.
-                                    let taken: HashSet<String> = {
-                                        state.connections.lock().values()
-                                            .map(|c| c.nickname.clone())
-                                            .collect()
-                                    };
-
-                                    let assigned_nick = assign_nick(&req_nick, &taken);
                                     let assigned_team = assign_team();
+                                    // Atomically assign a unique nickname AND register
+                                    // under one lock — no snapshot→assign→insert race.
+                                    let assigned_nick = state.assign_and_register(
+                                        session_id,
+                                        &req_nick,
+                                        assigned_team,
+                                    );
 
                                     connected = true;
                                     nickname = assigned_nick.clone();
                                     my_team = assigned_team;
-
-                                    // Register before sending Welcome.
-                                    state.register_conn(ConnInfo {
-                                        session_id,
-                                        nickname: assigned_nick.clone(),
-                                        team: assigned_team,
-                                    });
 
                                     // Send Welcome.
                                     let welcome = ServerMessage::Welcome {
@@ -410,7 +407,8 @@ fn unix_millis() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
-        .as_millis() as u64
+        .as_millis()
+        .min(u64::MAX as u128) as u64
 }
 
 // ── Unit tests ────────────────────────────────────────────────────────────────
@@ -441,7 +439,11 @@ mod tests {
     fn team_filter_matches_own_team() {
         let filter = Some(Team::Red);
         let my_team = Team::Red;
-        let should_skip = if let Some(f) = filter { f != my_team } else { false };
+        let should_skip = if let Some(f) = filter {
+            f != my_team
+        } else {
+            false
+        };
         assert!(!should_skip, "matching team filter should not skip");
     }
 
@@ -450,7 +452,11 @@ mod tests {
     fn team_filter_skips_other_team() {
         let filter = Some(Team::Red);
         let my_team = Team::Blue;
-        let should_skip = if let Some(f) = filter { f != my_team } else { false };
+        let should_skip = if let Some(f) = filter {
+            f != my_team
+        } else {
+            false
+        };
         assert!(should_skip, "non-matching team filter should skip");
     }
 

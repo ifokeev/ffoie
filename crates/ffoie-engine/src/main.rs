@@ -54,12 +54,12 @@ const MOUSE_SENSITIVITY: f32 = 0.0022;
 // To get Defrag/CPM "easy strafe" feel, bump AIR_ACCEL to 5+ and add an
 // air-control term — that's a later iteration.
 const GROUND_ACCEL: f32 = 10.0;
-const AIR_ACCEL: f32 = 1.0;     // VQ3 = 1.0; CPM = 2.0+; arcade = 5–10
-const MAX_SPEED: f32 = 10.0;    // ~320 u/s
+const AIR_ACCEL: f32 = 1.0; // VQ3 = 1.0; CPM = 2.0+; arcade = 5–10
+const MAX_SPEED: f32 = 10.0; // ~320 u/s
 const FRICTION: f32 = 6.0;
-const STOP_SPEED: f32 = 3.0;    // ~100 u/s
+const STOP_SPEED: f32 = 3.0; // ~100 u/s
 const JUMP_VELOCITY: f32 = 8.5; // ~270 u/s → ~1.45 m apex
-const GRAVITY: f32 = -25.0;     // 800 u/s²
+const GRAVITY: f32 = -25.0; // 800 u/s²
 const EYE_HEIGHT: f32 = 1.7;
 const SPRINT_MULT: f32 = 1.8;
 
@@ -169,8 +169,12 @@ struct Block {
 }
 
 impl Block {
-    fn min(&self) -> Vec3 { self.center - self.half_size }
-    fn max(&self) -> Vec3 { self.center + self.half_size }
+    fn min(&self) -> Vec3 {
+        self.center - self.half_size
+    }
+    fn max(&self) -> Vec3 {
+        self.center + self.half_size
+    }
 
     fn to_instance(self) -> Instance {
         Instance {
@@ -221,35 +225,107 @@ struct SkyUniforms {
 
 const CUBE_VERTS: &[Vertex] = &[
     // +X
-    Vertex { pos: [ 0.5, -0.5, -0.5], normal: [ 1.0,  0.0,  0.0] },
-    Vertex { pos: [ 0.5,  0.5, -0.5], normal: [ 1.0,  0.0,  0.0] },
-    Vertex { pos: [ 0.5,  0.5,  0.5], normal: [ 1.0,  0.0,  0.0] },
-    Vertex { pos: [ 0.5, -0.5,  0.5], normal: [ 1.0,  0.0,  0.0] },
+    Vertex {
+        pos: [0.5, -0.5, -0.5],
+        normal: [1.0, 0.0, 0.0],
+    },
+    Vertex {
+        pos: [0.5, 0.5, -0.5],
+        normal: [1.0, 0.0, 0.0],
+    },
+    Vertex {
+        pos: [0.5, 0.5, 0.5],
+        normal: [1.0, 0.0, 0.0],
+    },
+    Vertex {
+        pos: [0.5, -0.5, 0.5],
+        normal: [1.0, 0.0, 0.0],
+    },
     // -X
-    Vertex { pos: [-0.5, -0.5,  0.5], normal: [-1.0,  0.0,  0.0] },
-    Vertex { pos: [-0.5,  0.5,  0.5], normal: [-1.0,  0.0,  0.0] },
-    Vertex { pos: [-0.5,  0.5, -0.5], normal: [-1.0,  0.0,  0.0] },
-    Vertex { pos: [-0.5, -0.5, -0.5], normal: [-1.0,  0.0,  0.0] },
+    Vertex {
+        pos: [-0.5, -0.5, 0.5],
+        normal: [-1.0, 0.0, 0.0],
+    },
+    Vertex {
+        pos: [-0.5, 0.5, 0.5],
+        normal: [-1.0, 0.0, 0.0],
+    },
+    Vertex {
+        pos: [-0.5, 0.5, -0.5],
+        normal: [-1.0, 0.0, 0.0],
+    },
+    Vertex {
+        pos: [-0.5, -0.5, -0.5],
+        normal: [-1.0, 0.0, 0.0],
+    },
     // +Y
-    Vertex { pos: [-0.5,  0.5, -0.5], normal: [ 0.0,  1.0,  0.0] },
-    Vertex { pos: [-0.5,  0.5,  0.5], normal: [ 0.0,  1.0,  0.0] },
-    Vertex { pos: [ 0.5,  0.5,  0.5], normal: [ 0.0,  1.0,  0.0] },
-    Vertex { pos: [ 0.5,  0.5, -0.5], normal: [ 0.0,  1.0,  0.0] },
+    Vertex {
+        pos: [-0.5, 0.5, -0.5],
+        normal: [0.0, 1.0, 0.0],
+    },
+    Vertex {
+        pos: [-0.5, 0.5, 0.5],
+        normal: [0.0, 1.0, 0.0],
+    },
+    Vertex {
+        pos: [0.5, 0.5, 0.5],
+        normal: [0.0, 1.0, 0.0],
+    },
+    Vertex {
+        pos: [0.5, 0.5, -0.5],
+        normal: [0.0, 1.0, 0.0],
+    },
     // -Y
-    Vertex { pos: [-0.5, -0.5,  0.5], normal: [ 0.0, -1.0,  0.0] },
-    Vertex { pos: [-0.5, -0.5, -0.5], normal: [ 0.0, -1.0,  0.0] },
-    Vertex { pos: [ 0.5, -0.5, -0.5], normal: [ 0.0, -1.0,  0.0] },
-    Vertex { pos: [ 0.5, -0.5,  0.5], normal: [ 0.0, -1.0,  0.0] },
+    Vertex {
+        pos: [-0.5, -0.5, 0.5],
+        normal: [0.0, -1.0, 0.0],
+    },
+    Vertex {
+        pos: [-0.5, -0.5, -0.5],
+        normal: [0.0, -1.0, 0.0],
+    },
+    Vertex {
+        pos: [0.5, -0.5, -0.5],
+        normal: [0.0, -1.0, 0.0],
+    },
+    Vertex {
+        pos: [0.5, -0.5, 0.5],
+        normal: [0.0, -1.0, 0.0],
+    },
     // +Z
-    Vertex { pos: [ 0.5, -0.5,  0.5], normal: [ 0.0,  0.0,  1.0] },
-    Vertex { pos: [ 0.5,  0.5,  0.5], normal: [ 0.0,  0.0,  1.0] },
-    Vertex { pos: [-0.5,  0.5,  0.5], normal: [ 0.0,  0.0,  1.0] },
-    Vertex { pos: [-0.5, -0.5,  0.5], normal: [ 0.0,  0.0,  1.0] },
+    Vertex {
+        pos: [0.5, -0.5, 0.5],
+        normal: [0.0, 0.0, 1.0],
+    },
+    Vertex {
+        pos: [0.5, 0.5, 0.5],
+        normal: [0.0, 0.0, 1.0],
+    },
+    Vertex {
+        pos: [-0.5, 0.5, 0.5],
+        normal: [0.0, 0.0, 1.0],
+    },
+    Vertex {
+        pos: [-0.5, -0.5, 0.5],
+        normal: [0.0, 0.0, 1.0],
+    },
     // -Z
-    Vertex { pos: [-0.5, -0.5, -0.5], normal: [ 0.0,  0.0, -1.0] },
-    Vertex { pos: [-0.5,  0.5, -0.5], normal: [ 0.0,  0.0, -1.0] },
-    Vertex { pos: [ 0.5,  0.5, -0.5], normal: [ 0.0,  0.0, -1.0] },
-    Vertex { pos: [ 0.5, -0.5, -0.5], normal: [ 0.0,  0.0, -1.0] },
+    Vertex {
+        pos: [-0.5, -0.5, -0.5],
+        normal: [0.0, 0.0, -1.0],
+    },
+    Vertex {
+        pos: [-0.5, 0.5, -0.5],
+        normal: [0.0, 0.0, -1.0],
+    },
+    Vertex {
+        pos: [0.5, 0.5, -0.5],
+        normal: [0.0, 0.0, -1.0],
+    },
+    Vertex {
+        pos: [0.5, -0.5, -0.5],
+        normal: [0.0, 0.0, -1.0],
+    },
 ];
 
 #[rustfmt::skip]
@@ -273,12 +349,12 @@ const CUBE_INDICES: &[u16] = &[
 ///                            stairs going up at +Z
 fn build_course() -> Vec<Block> {
     let mut b = Vec::new();
-    let easy   = [0.35, 0.55, 0.85]; // blue
-    let mid    = [0.80, 0.70, 0.25]; // amber
-    let hard   = [0.85, 0.30, 0.30]; // red
-    let side   = [0.40, 0.75, 0.45]; // green
+    let easy = [0.35, 0.55, 0.85]; // blue
+    let mid = [0.80, 0.70, 0.25]; // amber
+    let hard = [0.85, 0.30, 0.30]; // red
+    let side = [0.40, 0.75, 0.45]; // green
     let finish = [0.85, 0.55, 0.90]; // violet
-    let stone  = [0.55, 0.55, 0.62]; // gray
+    let stone = [0.55, 0.55, 0.62]; // gray
 
     let mk = |cx: f32, h: f32, cz: f32, hx: f32, hz: f32, color: [f32; 3]| Block {
         center: Vec3::new(cx, h * 0.5, cz),
@@ -287,37 +363,32 @@ fn build_course() -> Vec<Block> {
     };
 
     // ── Main line: low platforms, gaps growing for speed-building ──
-    b.push(mk( 7.0,  0.6,  0.0,  1.6, 1.6, easy));
-    b.push(mk(13.0,  0.6,  0.0,  1.4, 1.4, easy));
-    b.push(mk(20.0,  0.6,  0.0,  1.4, 1.4, easy));
-    b.push(mk(28.0,  0.6,  0.0,  1.4, 1.4, mid));
-    b.push(mk(37.0,  0.6,  0.0,  1.4, 1.4, mid));
-    b.push(mk(47.0,  0.6,  0.0,  1.4, 1.4, mid));
-    b.push(mk(58.0,  0.6,  0.0,  1.6, 1.6, hard));
+    b.push(mk(7.0, 0.6, 0.0, 1.6, 1.6, easy));
+    b.push(mk(13.0, 0.6, 0.0, 1.4, 1.4, easy));
+    b.push(mk(20.0, 0.6, 0.0, 1.4, 1.4, easy));
+    b.push(mk(28.0, 0.6, 0.0, 1.4, 1.4, mid));
+    b.push(mk(37.0, 0.6, 0.0, 1.4, 1.4, mid));
+    b.push(mk(47.0, 0.6, 0.0, 1.4, 1.4, mid));
+    b.push(mk(58.0, 0.6, 0.0, 1.6, 1.6, hard));
 
     // ── Finish platform: big, raised, rewards a long strafe approach ──
-    b.push(mk(72.0,  1.2,  0.0,  3.5, 3.5, finish));
+    b.push(mk(72.0, 1.2, 0.0, 3.5, 3.5, finish));
 
     // ── Side strafe targets (off-axis pads) ──
-    b.push(mk(15.0,  0.5,  6.5,  1.0, 1.0, side));
-    b.push(mk(25.0,  0.5, -6.5,  1.0, 1.0, side));
-    b.push(mk(35.0,  0.5,  6.5,  1.0, 1.0, side));
-    b.push(mk(45.0,  0.5, -6.5,  1.0, 1.0, side));
+    b.push(mk(15.0, 0.5, 6.5, 1.0, 1.0, side));
+    b.push(mk(25.0, 0.5, -6.5, 1.0, 1.0, side));
+    b.push(mk(35.0, 0.5, 6.5, 1.0, 1.0, side));
+    b.push(mk(45.0, 0.5, -6.5, 1.0, 1.0, side));
 
     // ── Stair-step climb (back-right of spawn) ──
     for i in 0..6 {
         let fi = i as f32;
-        b.push(mk(
-            -4.0 - fi * 2.4,
-            0.5 + fi * 0.4,
-            -8.0,
-            1.1, 1.1, stone,
-        ));
+        b.push(mk(-4.0 - fi * 2.4, 0.5 + fi * 0.4, -8.0, 1.1, 1.1, stone));
     }
 
     // ── A few orientation markers near spawn ──
-    b.push(mk(-6.0, 0.4,  3.5,  0.5, 0.5, stone));
-    b.push(mk(-6.0, 0.4, -3.5,  0.5, 0.5, stone));
+    b.push(mk(-6.0, 0.4, 3.5, 0.5, 0.5, stone));
+    b.push(mk(-6.0, 0.4, -3.5, 0.5, 0.5, stone));
 
     b
 }
@@ -436,15 +507,22 @@ fn apply_friction(vel: &mut Vec3, dt: f32) {
 fn player_aabb(pos: Vec3) -> (Vec3, Vec3) {
     (
         Vec3::new(pos.x - PLAYER_HALF_X, pos.y, pos.z - PLAYER_HALF_Z),
-        Vec3::new(pos.x + PLAYER_HALF_X, pos.y + PLAYER_HEIGHT, pos.z + PLAYER_HALF_Z),
+        Vec3::new(
+            pos.x + PLAYER_HALF_X,
+            pos.y + PLAYER_HEIGHT,
+            pos.z + PLAYER_HALF_Z,
+        ),
     )
 }
 
 #[inline]
 fn aabb_overlap(amin: Vec3, amax: Vec3, bmin: Vec3, bmax: Vec3) -> bool {
-    amax.x > bmin.x && amin.x < bmax.x
-        && amax.y > bmin.y && amin.y < bmax.y
-        && amax.z > bmin.z && amin.z < bmax.z
+    amax.x > bmin.x
+        && amin.x < bmax.x
+        && amax.y > bmin.y
+        && amin.y < bmax.y
+        && amax.z > bmin.z
+        && amin.z < bmax.z
 }
 
 /// Integrate the player position with axis-separated swept AABB collision.
@@ -515,7 +593,11 @@ fn move_and_collide(player: &mut Player, blocks: &[Block], dt: f32) -> bool {
                     blk.max().x + PLAYER_HALF_X + COLLISION_EPS
                 };
                 if let Some(s) = snap_to {
-                    snap_to = Some(if dx > 0.0 { s.min(candidate) } else { s.max(candidate) });
+                    snap_to = Some(if dx > 0.0 {
+                        s.min(candidate)
+                    } else {
+                        s.max(candidate)
+                    });
                 } else {
                     snap_to = Some(candidate);
                 }
@@ -543,7 +625,11 @@ fn move_and_collide(player: &mut Player, blocks: &[Block], dt: f32) -> bool {
                     blk.max().z + PLAYER_HALF_Z + COLLISION_EPS
                 };
                 if let Some(s) = snap_to {
-                    snap_to = Some(if dz > 0.0 { s.min(candidate) } else { s.max(candidate) });
+                    snap_to = Some(if dz > 0.0 {
+                        s.min(candidate)
+                    } else {
+                        s.max(candidate)
+                    });
                 } else {
                     snap_to = Some(candidate);
                 }
@@ -567,8 +653,16 @@ fn standing_on_ground(player: &Player, blocks: &[Block]) -> bool {
     if player.pos.y <= 0.001 {
         return true;
     }
-    let probe_min = Vec3::new(player.pos.x - PLAYER_HALF_X, player.pos.y - GROUND_PROBE, player.pos.z - PLAYER_HALF_Z);
-    let probe_max = Vec3::new(player.pos.x + PLAYER_HALF_X, player.pos.y + 0.001,        player.pos.z + PLAYER_HALF_Z);
+    let probe_min = Vec3::new(
+        player.pos.x - PLAYER_HALF_X,
+        player.pos.y - GROUND_PROBE,
+        player.pos.z - PLAYER_HALF_Z,
+    );
+    let probe_max = Vec3::new(
+        player.pos.x + PLAYER_HALF_X,
+        player.pos.y + 0.001,
+        player.pos.z + PLAYER_HALF_Z,
+    );
     for blk in blocks {
         if aabb_overlap(probe_min, probe_max, blk.min(), blk.max()) {
             return true;
@@ -675,7 +769,11 @@ fn load_glb(bytes: &[u8]) -> GlbAsset {
         "loaded glb: {} verts, {} indices, base_color: {}",
         vertices.len(),
         indices.len(),
-        if base_color_image.is_some() { "yes" } else { "no" },
+        if base_color_image.is_some() {
+            "yes"
+        } else {
+            "no"
+        },
     );
 
     GlbAsset {
@@ -692,8 +790,7 @@ fn create_texture_from_image_bytes(
     bytes: &[u8],
     label: &str,
 ) -> wgpu::TextureView {
-    let img = image::load_from_memory(bytes)
-        .expect("failed to decode embedded image");
+    let img = image::load_from_memory(bytes).expect("failed to decode embedded image");
     let rgba = img.to_rgba8();
     let (w, h) = rgba.dimensions();
     let pixels = rgba.into_raw();
@@ -932,7 +1029,10 @@ impl State {
         } else {
             wgpu::PresentMode::AutoVsync
         };
-        log::info!("present mode: {present_mode:?}, available: {:?}", cap.present_modes);
+        log::info!(
+            "present mode: {present_mode:?}, available: {:?}",
+            cap.present_modes
+        );
         println!("[ffoie] present mode: {present_mode:?}");
 
         // ── Buffers: cubes + floor ──
@@ -1324,9 +1424,18 @@ impl State {
             label: Some("sky bg"),
             layout: &sky_bgl,
             entries: &[
-                wgpu::BindGroupEntry { binding: 0, resource: sky_uniform_buffer.as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(&sky_view) },
-                wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::Sampler(&sky_sampler) },
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: sky_uniform_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(&sky_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::Sampler(&sky_sampler),
+                },
             ],
         });
         let sky_pl = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -1508,10 +1617,18 @@ impl State {
         let right_h = (yaw_rot * Vec3::X).normalize_or_zero();
 
         let mut wish = Vec3::ZERO;
-        if self.input.is_down(KeyCode::KeyW) { wish += forward_h; }
-        if self.input.is_down(KeyCode::KeyS) { wish -= forward_h; }
-        if self.input.is_down(KeyCode::KeyD) { wish += right_h; }
-        if self.input.is_down(KeyCode::KeyA) { wish -= right_h; }
+        if self.input.is_down(KeyCode::KeyW) {
+            wish += forward_h;
+        }
+        if self.input.is_down(KeyCode::KeyS) {
+            wish -= forward_h;
+        }
+        if self.input.is_down(KeyCode::KeyD) {
+            wish += right_h;
+        }
+        if self.input.is_down(KeyCode::KeyA) {
+            wish -= right_h;
+        }
         let wish_len = wish.length();
         let (wish_dir, wish_speed) = if wish_len > 0.0 {
             let s = if self.input.is_down(KeyCode::ShiftLeft) {
@@ -1529,7 +1646,13 @@ impl State {
         //  jump preserves the just-added-this-tick velocity.)
         if self.player.on_ground {
             apply_friction(&mut self.player.vel, TICK_DT);
-            accelerate(&mut self.player.vel, wish_dir, wish_speed, GROUND_ACCEL, TICK_DT);
+            accelerate(
+                &mut self.player.vel,
+                wish_dir,
+                wish_speed,
+                GROUND_ACCEL,
+                TICK_DT,
+            );
 
             // Auto-hop: Space held while grounded → jump.
             if self.input.is_down(KeyCode::Space) {
@@ -1539,7 +1662,13 @@ impl State {
         } else {
             // PM_AirAccelerate: same function, lower accel constant.
             // This is the magic that makes strafe-jumping work.
-            accelerate(&mut self.player.vel, wish_dir, wish_speed, AIR_ACCEL, TICK_DT);
+            accelerate(
+                &mut self.player.vel,
+                wish_dir,
+                wish_speed,
+                AIR_ACCEL,
+                TICK_DT,
+            );
         }
 
         // ── Gravity ──
@@ -1580,11 +1709,15 @@ impl State {
         let proj = self.camera.proj();
         let view_proj = proj * view;
         self.queue.write_buffer(
-            &self.scene_uniform_buffer, 0,
-            bytemuck::bytes_of(&Uniforms { view_proj: view_proj.to_cols_array_2d() }),
+            &self.scene_uniform_buffer,
+            0,
+            bytemuck::bytes_of(&Uniforms {
+                view_proj: view_proj.to_cols_array_2d(),
+            }),
         );
         self.queue.write_buffer(
-            &self.sky_uniform_buffer, 0,
+            &self.sky_uniform_buffer,
+            0,
             bytemuck::bytes_of(&SkyUniforms {
                 proj_inv: proj.inverse().to_cols_array_2d(),
                 view: view.to_cols_array_2d(),
@@ -1633,17 +1766,12 @@ impl State {
                 // can lag by a frame after a window resize on the web, leaving
                 // the crosshair off-centre until the next redraw.
                 let ppp = ctx.pixels_per_point().max(0.001);
-                let c = egui::pos2(
-                    viewport_w as f32 / ppp * 0.5,
-                    viewport_h as f32 / ppp * 0.5,
-                );
+                let c = egui::pos2(viewport_w as f32 / ppp * 0.5, viewport_h as f32 / ppp * 0.5);
 
                 // ── Crosshair ──
                 let len = 7.0;
-                let outer = egui::Stroke::new(
-                    3.0,
-                    egui::Color32::from_rgba_unmultiplied(0, 0, 0, 160),
-                );
+                let outer =
+                    egui::Stroke::new(3.0, egui::Color32::from_rgba_unmultiplied(0, 0, 0, 160));
                 let inner = egui::Stroke::new(
                     1.5,
                     egui::Color32::from_rgba_unmultiplied(255, 255, 255, 230),
@@ -1668,10 +1796,7 @@ impl State {
 
                 // Faint full-width track so the bar is locatable at 0 m/s.
                 painter.rect_filled(
-                    egui::Rect::from_min_size(
-                        egui::pos2(bar_x, bar_y),
-                        egui::vec2(bar_w, bar_h),
-                    ),
+                    egui::Rect::from_min_size(egui::pos2(bar_x, bar_y), egui::vec2(bar_w, bar_h)),
                     0.0,
                     egui::Color32::from_rgba_unmultiplied(255, 255, 255, 55),
                 );
@@ -1763,10 +1888,8 @@ impl State {
                                     ui.heading("Paused");
                                     ui.add_space(10.0);
                                     let btn = |label: &str| -> egui::Button<'_> {
-                                        egui::Button::new(
-                                            egui::RichText::new(label).size(18.0),
-                                        )
-                                        .min_size(egui::vec2(180.0, 36.0))
+                                        egui::Button::new(egui::RichText::new(label).size(18.0))
+                                            .min_size(egui::vec2(180.0, 36.0))
                                     };
                                     if ui.add(btn("Resume")).clicked() {
                                         resume_clicked = true;
@@ -1847,9 +1970,13 @@ impl State {
 
         // egui_wgpu may need to copy texture data; it can request extra command
         // buffers via update_buffers — we submit them with our own.
-        let egui_cmds =
-            self.egui_renderer
-                .update_buffers(&self.device, &self.queue, &mut encoder, &tris, &screen_desc);
+        let egui_cmds = self.egui_renderer.update_buffers(
+            &self.device,
+            &self.queue,
+            &mut encoder,
+            &tris,
+            &screen_desc,
+        );
 
         {
             let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -1859,7 +1986,12 @@ impl State {
                     depth_slice: None,
                     resolve_target: None,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color { r: 0.0, g: 0.0, b: 0.0, a: 1.0 }),
+                        load: wgpu::LoadOp::Clear(wgpu::Color {
+                            r: 0.0,
+                            g: 0.0,
+                            b: 0.0,
+                            a: 1.0,
+                        }),
                         store: wgpu::StoreOp::Store,
                     },
                 })],
@@ -1904,7 +2036,8 @@ impl State {
             rpass.draw(0..3, 0..1);
 
             // 4. egui (HUD + optional pause menu)
-            self.egui_renderer.render(&mut rpass.forget_lifetime(), &tris, &screen_desc);
+            self.egui_renderer
+                .render(&mut rpass.forget_lifetime(), &tris, &screen_desc);
         }
 
         self.queue
@@ -2106,7 +2239,10 @@ impl ApplicationHandler<AppEvent> for App {
         {
             // Take the proxy we stored at startup.  Unwrap is safe: the proxy
             // is set in run_event_loop before event_loop.run_app is called.
-            let proxy = self.proxy.take().expect("EventLoopProxy must be set before resumed");
+            let proxy = self
+                .proxy
+                .take()
+                .expect("EventLoopProxy must be set before resumed");
             let state = pollster::block_on(State::new(display, window.clone(), proxy));
             self.state = Some(state);
             if let Some(s) = self.state.as_ref() {
@@ -2120,7 +2256,10 @@ impl ApplicationHandler<AppEvent> for App {
             let win_clone = window.clone();
             // Take the proxy we stored at startup so it can be passed to
             // network::start inside State::new.
-            let proxy = self.proxy.take().expect("EventLoopProxy must be set before resumed");
+            let proxy = self
+                .proxy
+                .take()
+                .expect("EventLoopProxy must be set before resumed");
             wasm_bindgen_futures::spawn_local(async move {
                 let state = State::new(display, win_clone, proxy).await;
                 let w = state.window.clone();
@@ -2141,7 +2280,9 @@ impl ApplicationHandler<AppEvent> for App {
             }
         }
 
-        let Some(state) = self.state.as_mut() else { return };
+        let Some(state) = self.state.as_mut() else {
+            return;
+        };
 
         // Forward to egui so it can drive its UI (mouse-over, button clicks, etc.).
         let egui_response = state.egui_state.on_window_event(&state.window, &event);
@@ -2240,7 +2381,9 @@ impl ApplicationHandler<AppEvent> for App {
                             state.input.keys.insert(code);
                         }
                     }
-                    ElementState::Released => { state.input.keys.remove(&code); }
+                    ElementState::Released => {
+                        state.input.keys.remove(&code);
+                    }
                 }
             }
             WindowEvent::RedrawRequested => {
@@ -2256,7 +2399,9 @@ impl ApplicationHandler<AppEvent> for App {
     }
 
     fn device_event(&mut self, _event_loop: &ActiveEventLoop, _id: DeviceId, event: DeviceEvent) {
-        let Some(state) = self.state.as_mut() else { return };
+        let Some(state) = self.state.as_mut() else {
+            return;
+        };
         if let DeviceEvent::MouseMotion { delta } = event {
             // Suppress mouse-look while chat input is open — the cursor is
             // ungrabbed and the delta would pan the camera unexpectedly.
@@ -2306,7 +2451,10 @@ fn run_event_loop() {
     #[cfg(not(target_arch = "wasm32"))]
     {
         let proxy = event_loop.create_proxy();
-        let mut app = App { proxy: Some(proxy), ..App::default() };
+        let mut app = App {
+            proxy: Some(proxy),
+            ..App::default()
+        };
         event_loop.run_app(&mut app).unwrap();
     }
     #[cfg(target_arch = "wasm32")]
@@ -2315,7 +2463,10 @@ fn run_event_loop() {
         // `spawn_app` returns to JS and hooks our handler into requestAnimationFrame.
         use winit::platform::web::EventLoopExtWebSys;
         let proxy = event_loop.create_proxy();
-        let app = App { proxy: Some(proxy), ..App::default() };
+        let app = App {
+            proxy: Some(proxy),
+            ..App::default()
+        };
         event_loop.spawn_app(app);
     }
 }
