@@ -6,7 +6,9 @@ services:
       context: .
       dockerfile: crates/ffoie-chat-server/Dockerfile
     ports:
-      - "8080:8080"
+      # Container always binds 8080 internally; host port is unique + overridable
+      # via FFOIE_CHAT_PORT to avoid clashes with other local services.
+      - "${FFOIE_CHAT_PORT:-47820}:8080"
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:8080/healthz"]
@@ -28,18 +30,22 @@ services:
       - RUST_LOG_FORMAT
 
   # Wasm engine bundle, served as static files via nginx.
-  # The browser loads this from http://localhost:8081 and connects to the
-  # chat-server via the host-mapped ws://localhost:8080/ws (baked into the
+  # The browser loads this from http://localhost:47821 and connects to the
+  # chat-server via the host-mapped ws://localhost:47820/ws (baked into the
   # bundle at build time via FFOIE_CHAT_URL).
+  #
+  # NOTE: FFOIE_CHAT_URL is the URL the BROWSER uses, so it must reference the
+  # chat-server's HOST port (FFOIE_CHAT_PORT), not the container-internal 8080.
+  # If you override FFOIE_CHAT_PORT, set FFOIE_CHAT_URL to match.
   engine-web:
     build:
       context: .
       dockerfile: crates/ffoie-engine/Dockerfile.web
       args:
-        FFOIE_CHAT_URL: ${FFOIE_CHAT_URL:-ws://localhost:8080/ws}
+        FFOIE_CHAT_URL: ${FFOIE_CHAT_URL:-ws://localhost:47820/ws}
     ports:
-      # Override the host port via FFOIE_WEB_PORT if 8081 is already taken.
-      - "${FFOIE_WEB_PORT:-8081}:80"
+      # Unique host port; override via FFOIE_WEB_PORT if 47821 is already taken.
+      - "${FFOIE_WEB_PORT:-47821}:80"
     restart: unless-stopped
     depends_on:
       chat-server:
