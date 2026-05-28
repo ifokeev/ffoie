@@ -1,5 +1,4 @@
 use std::sync::Arc;
-use std::time::Instant;
 
 use axum::extract::State;
 use axum::http::StatusCode;
@@ -11,24 +10,11 @@ use tower_http::trace::TraceLayer;
 use tracing_subscriber::EnvFilter;
 
 mod config;
+mod nickname;
+mod state;
+
 use config::Config;
-
-// ── AppState ──────────────────────────────────────────────────────────────────
-
-/// Shared server state threaded through axum handlers via `State`.
-///
-/// Phase 2 Plan 01 holds only `config` and `started_at`.
-/// Plans 02-02 and 02-03 will extend this with:
-///   - `broadcast_tx: tokio::sync::broadcast::Sender<Arc<BroadcastEvent>>`
-///   - `scrollback: Arc<parking_lot::Mutex<VecDeque<ChatMessage>>>`
-///   - `connections: Arc<parking_lot::Mutex<HashMap<Uuid, ConnInfo>>>`
-///   - `cancellation_token: tokio_util::sync::CancellationToken`
-#[derive(Clone)]
-#[allow(dead_code)] // config consumed by plans 02-02 and 02-03
-struct AppState {
-    config: Arc<Config>,
-    started_at: Instant,
-}
+use state::AppState;
 
 // ── Healthz response ──────────────────────────────────────────────────────────
 
@@ -36,7 +22,7 @@ struct AppState {
 struct HealthzResponse {
     status: &'static str,
     uptime_seconds: u64,
-    connections: u32,
+    connections: usize,
     version: &'static str,
 }
 
@@ -46,7 +32,7 @@ async fn healthz(State(state): State<AppState>) -> Json<HealthzResponse> {
     Json(HealthzResponse {
         status: "ok",
         uptime_seconds: state.started_at.elapsed().as_secs(),
-        connections: 0, // populated in plan 02-02 when connections map is added
+        connections: state.connection_count(),
         version: "v1.1",
     })
 }
@@ -87,10 +73,7 @@ async fn main() {
 
     let bind_addr = config.bind;
 
-    let state = AppState {
-        config: Arc::new(config),
-        started_at: Instant::now(),
-    };
+    let state = AppState::new(Arc::new(config));
 
     // Build the router.
     let app = Router::new()
