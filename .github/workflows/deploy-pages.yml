@@ -51,6 +51,7 @@ jobs:
           fi
         env:
           REPO: ${{ github.event.repository.name }}
+          FFOIE_CHAT_URL: wss://ffoie.net/ws
 
       # Drop the landing site's files at the dist root so `/` serves the
       # landing page and `/web/` keeps serving the game.

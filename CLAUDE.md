@@ -126,6 +126,27 @@ Two HiDPI safety caps:
 - The render framebuffer is clamped to `MAX_RENDER_DIM = 4096` per axis;
   the browser upscales it to the canvas's CSS size.
 
+### Chat URL (build-time)
+
+The wasm32 chat client reads the WebSocket server URL from a compile-time
+environment variable:
+
+```
+option_env!("FFOIE_CHAT_URL").unwrap_or("ws://localhost:8080/ws")
+```
+
+- **Production builds** (via `deploy-pages.yml`): `FFOIE_CHAT_URL=wss://ffoie.net/ws`
+  is set in the workflow env block before `trunk build` runs. The `wss://` URL
+  is baked into the wasm bundle; the browser's mixed-content policy requires
+  `wss://` from an `https://` origin.
+- **Local dev**: unset (falls back to `ws://localhost:8080/ws`). Run the chat
+  server alongside `trunk serve web-client/index.html` and the dev build
+  connects automatically.
+- **Custom deploys**: `FFOIE_CHAT_URL=wss://your-host/ws trunk build ...`
+
+Do NOT set `FFOIE_CHAT_URL` on the native build — the native engine reads the
+URL at runtime via `std::env::var("FFOIE_CHAT_URL")` and falls back the same way.
+
 ### Mobile / embedded GPUs
 
 For low-end Vulkan stacks (Mali-G52 / Bifrost v7) the device descriptor uses
