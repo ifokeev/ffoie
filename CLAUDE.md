@@ -19,8 +19,10 @@ engine prototype in Rust. Two product non-negotiables shape every choice:
    classic Quake `PM_Accelerate` / `PM_AirAccelerate` / `PM_Friction` so
    real strafe-jumping just works.
 
-It is *not* a game yet — no weapons, enemies, levels, AI, audio, or netcode.
+It is *not* a game yet — no weapons, enemies, levels, AI, or full netcode.
 The bones (input, render, physics, asset pipeline, UI, deploy) are the focus.
+v1.1 adds real-time in-game chat: two engine windows on the same machine (or
+network) can exchange messages through the `ffoie-chat-server` over WebSockets.
 
 ---
 
@@ -39,12 +41,14 @@ mismatches are visible at a glance instead of hidden in logs.
 
 ---
 
-## Single-binary, single-file architecture
+## Single-binary architecture (engine crate)
 
-The entire engine lives in `src/main.rs` (~2000 lines, heavily commented).
-Staying single-file is deliberate while the codebase is small: fewer module
-boundaries, fewer borrow-checker fights, easier to grep. Refactoring is on
-the table when the file crosses ~3000 lines or a clean seam emerges.
+The engine binary lives in `crates/ffoie-engine/`. The core logic is in
+`src/main.rs` (~2178 lines, heavily commented). Starting with v1.1, new
+functionality is split into sibling modules (`chat.rs`, `network.rs`) rather
+than extending `main.rs` inline — see the "Workspace layout" section below for
+the full module policy. The existing `main.rs` remains single-file for now;
+a full modular refactor is planned for a later milestone.
 
 ### Per-frame flow
 
@@ -85,7 +89,8 @@ Axis-separated swept AABB against a hand-arranged `Vec<Block>` (the
 strafe-jump course). Order is Y (so a falling player lands on block tops
 cleanly) → X → Z (slides along walls without losing speed on the other
 axes). Floor at `y = 0` is a hard clamp. No step-up — short obstacles block
-forward velocity. See `move_and_collide` + `standing_on_ground`.
+forward velocity. See `move_and_collide` + `standing_on_ground` in
+`crates/ffoie-engine/src/main.rs`.
 
 ### Renderer
 
@@ -102,7 +107,7 @@ formats. Depth = `Depth32Float`. Present mode defaults to **Mailbox**
 
 ### Web port specifics
 
-`main.rs` compiles for both native and wasm32 via `cfg`:
+`crates/ffoie-engine/src/main.rs` compiles for both native and wasm32 via `cfg`:
 
 - Native `fn main()` initialises `env_logger` and runs `event_loop.run_app`.
 - Web `#[wasm_bindgen(start)] pub fn run_wasm()` initialises `console_log`
@@ -138,11 +143,37 @@ variant silently ignores them.
 
 ---
 
+## Workspace layout
+
+The repo is a Cargo workspace with `resolver = "2"`. Three member crates live
+under `crates/`:
+
+| Crate | Type | Compiles for wasm32? | Purpose |
+|-------|------|----------------------|---------|
+| `ffoie-engine` | bin | Yes | Engine, renderer, input, chat HUD |
+| `ffoie-protocol` | lib | Yes — pure data, no OS deps | Shared wire types |
+| `ffoie-chat-server` | bin | No — tokio/axum | Chat server |
+
+The workspace root `Cargo.toml` is a virtual manifest (no `[package]`); it sets
+`default-members = ["crates/ffoie-engine"]` so a bare `cargo build` builds the
+engine.
+
+**Module policy (relaxed from the original single-file rule):**
+
+Starting with v1.1, new engine functionality goes in sibling `.rs` files under
+`crates/ffoie-engine/src/` (e.g. `network.rs`, `chat.rs`). The existing
+`main.rs` (~2178 LOC) remains single-file for now; a full modular refactor is
+planned for a later milestone. Until that refactor, `main.rs` may grow
+`mod foo;` declarations and a small number of integration call sites for new
+modules — it does **not** grow new subsystems inline.
+
+---
+
 ## File / directory map
 
 ```
 ffoie/
-├── Cargo.toml              wgpu/winit/egui/glam/bytemuck/gltf/image/ktx2
+├── Cargo.toml              workspace virtual manifest (resolver = "2")
 ├── README.md               install + build per platform — read first
 ├── CLAUDE.md               this file
 ├── run-vulkan.sh           Mali-G52 / PanVK launcher
@@ -155,17 +186,28 @@ ffoie/
 │   └── entitlements.plist  hardened-runtime entitlements (empty by default)
 ├── website/                landing site source (served at /)
 │   └── index.html          hand-written, no framework; add images/videos here
-├── web-client/             trunk manifest for the wasm game (served at /web/)
+├── web-client/             trunk manifest for the wasm engine (served at /web/)
 │   └── index.html          <link data-trunk rel="rust" ...> — loads the wasm
-├── src/
-│   ├── main.rs             everything (single-file engine)
-│   ├── shader.wgsl         instanced lit geometry (cubes)
-│   ├── floor.wgsl          procedural grid floor (notebook style)
-│   ├── fox.wgsl            textured-mesh shader (Fox glTF)
-│   ├── sky.wgsl            cubemap skybox
-│   └── assets/
-│       ├── skybox.ktx2     skybox cubemap (from wgpu's skybox example)
-│       └── fox.glb         Khronos CC0 Fox glTF
+├── crates/
+│   ├── ffoie-engine/       engine binary (native + wasm32)
+│   │   ├── Cargo.toml
+│   │   └── src/
+│   │       ├── main.rs     engine core (~2178 LOC; single-file by convention, new code in modules)
+│   │       ├── network.rs  WS client lifecycle (new in v1.1)
+│   │       ├── chat.rs     chat HUD state + render (new in v1.1)
+│   │       ├── shader.wgsl instanced lit geometry (cubes)
+│   │       ├── floor.wgsl  procedural grid floor (notebook style)
+│   │       ├── fox.wgsl    textured-mesh shader (Fox glTF)
+│   │       ├── sky.wgsl    cubemap skybox
+│   │       └── assets/
+│   │           ├── skybox.ktx2  skybox cubemap (from wgpu's skybox example)
+│   │           └── fox.glb      Khronos CC0 Fox glTF
+│   ├── ffoie-protocol/     shared wire types (native + wasm32)
+│   │   ├── Cargo.toml
+│   │   └── src/lib.rs
+│   └── ffoie-chat-server/  standalone chat server binary (native only)
+│       ├── Cargo.toml
+│       └── src/main.rs
 └── debug/
     └── macos-panic/        kernel panic logs observed during dev
                             (all Apple-side bugs — none mention FFOIE)
@@ -219,8 +261,12 @@ Build-artifact paths:
   linker step", "Add fox texture pipeline". No body unless really needed.
   **No `Co-Authored-By:` footer.**
 - Rust style is whatever `cargo fmt` produces; no extra rules.
-- Constants at the top of `main.rs` are **designed to be tuned**. Most are
-  movement-feel knobs.
+- Constants at the top of `crates/ffoie-engine/src/main.rs` are **designed to
+  be tuned**. Most are movement-feel knobs.
+- New engine functionality in v1.1+ lives in modules under
+  `crates/ffoie-engine/src/` (e.g. `network.rs`, `chat.rs`). The single-file
+  `main.rs` convention is relaxed for new code; a full modular refactor of the
+  existing ~2178-line `main.rs` is a future task.
 - WebGPU/Vulkan/Metal optional features stay off the default path unless
   necessary — the build must work on the minimum-spec GPU per platform with
   no explicit feature negotiation.
