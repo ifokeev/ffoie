@@ -187,6 +187,7 @@ Next likely directions, roughly in priority order:
 
 None of this is started; the prototype is intentionally a sandbox right now.
 
-## v1.1 — Shipped: Online Chat MVP
+<!-- Milestone history (what shipped when) lives in git tags + the changelog,
+     not here. Running the chat dev stack is documented in
+     .claude/rules/deploy-release.md. -->
 
-v1.1 shipped a WebSocket chat server (`crates/ffoie-chat-server`) with in-memory fan-out, scrollback, rate limiting, and graceful shutdown. The engine client (native + wasm) connects automatically on start and renders chat in the egui HUD. Dev stack: `make docker-up` brings up the chat server + nginx-served wasm engine and prints both URLs; `make soak` runs the 1k-connection 5-minute load test. Host ports default to non-standard values (overridable via `FFOIE_CHAT_PORT` / `FFOIE_WEB_PORT`) to avoid clashing with other local services — see `compose.yml` / `Makefile` for the values. The server binds `8080` inside the container and for a bare `cargo run -p ffoie-chat-server`; Docker maps it to the non-standard host port.

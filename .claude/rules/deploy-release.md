@@ -11,8 +11,26 @@ paths:
 
 # Deploy & release
 
-Reference for the GitHub Pages site and the macOS release pipeline. Loads only
-when you touch CI workflows, packaging, Docker, compose, or the web/landing dirs.
+Reference for the chat dev stack, the GitHub Pages site, and the macOS release
+pipeline. Loads only when you touch CI workflows, packaging, Docker, compose,
+the Makefile, or the web/landing dirs.
+
+## Chat dev stack (local)
+
+The v1.1 chat server (`crates/ffoie-chat-server`) is an axum WebSocket server
+with in-memory fan-out, scrollback, rate limiting, and graceful shutdown; the
+engine client (native + wasm) connects automatically on start.
+
+- `make docker-up` — brings up the chat server + nginx-served wasm engine and
+  prints both URLs.
+- `make soak` — runs the 1k-connection 5-minute load test.
+- Host ports default to non-standard values (override via `FFOIE_CHAT_PORT` /
+  `FFOIE_WEB_PORT`) to avoid clashing with other local services — `compose.yml` /
+  `Makefile` hold the actual values.
+- **Gotcha:** the server binds `8080` *inside* the container (and for a bare
+  `cargo run -p ffoie-chat-server`); Docker maps that to the non-standard host
+  port. So container-internal references use `8080`; anything the host/browser
+  hits uses the mapped port.
 
 ## Pages route layout
 
