@@ -11,6 +11,7 @@ use tracing_subscriber::EnvFilter;
 
 mod config;
 mod nickname;
+mod rate_limit;
 mod state;
 
 use config::Config;
