@@ -298,8 +298,6 @@ mod native {
             state.chat_active || !state.messages.is_empty() || !state.system_messages.is_empty();
         let panel_height = if state.chat_active {
             (window_height * 0.30).max(80.0)
-        } else if has_content {
-            22.0
         } else {
             22.0
         };

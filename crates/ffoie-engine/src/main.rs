@@ -9,11 +9,21 @@
 // Chat network module (native-only; gated inside the file with #![cfg(...)]).
 // Plan 03-05 wires the types into the engine; this declaration triggers
 // compilation so that cargo build -p ffoie catches any errors in network.rs.
+#[cfg(not(target_arch = "wasm32"))]
 pub mod network;
 
 // Chat HUD state and egui panel renderer (plan 03-04).
 // Compiles on all platforms; drain_network + render_panel are native-only.
 pub mod chat;
+
+// AppEvent is defined in network.rs (native) and used to type the EventLoop
+// so the network background thread can wake the winit loop.
+// On wasm32, define a stub empty enum so EventLoop::<AppEvent> compiles.
+#[cfg(not(target_arch = "wasm32"))]
+use network::AppEvent;
+#[cfg(target_arch = "wasm32")]
+#[derive(Debug, Clone)]
+pub enum AppEvent {}
 
 use std::collections::HashSet;
 use std::sync::{Arc, OnceLock};
@@ -122,7 +132,7 @@ fn speed_color(speed: f32) -> egui::Color32 {
         (
             220.0 + (240.0 - 220.0) * u,
             200.0 + (90.0 - 200.0) * u,
-            60.0 + (60.0 - 60.0) * u,
+            60.0,
         )
     };
     egui::Color32::from_rgb(r as u8, g as u8, b as u8)
@@ -169,7 +179,7 @@ impl Block {
     fn min(&self) -> Vec3 { self.center - self.half_size }
     fn max(&self) -> Vec3 { self.center + self.half_size }
 
-    fn to_instance(&self) -> Instance {
+    fn to_instance(self) -> Instance {
         Instance {
             pos: self.center.to_array(),
             scale: (self.half_size * 2.0).to_array(),
@@ -465,13 +475,13 @@ fn move_and_collide(player: &mut Player, blocks: &[Block], dt: f32) -> bool {
             if aabb_overlap(pmin, pmax, blk.min(), blk.max()) {
                 if going_down {
                     let candidate = blk.max().y + COLLISION_EPS;
-                    if snap_to.map_or(true, |s| candidate > s) {
+                    if snap_to.is_none_or(|s| candidate > s) {
                         snap_to = Some(candidate);
                     }
                 } else {
                     // Bumped head on a ceiling.
                     let candidate = blk.min().y - PLAYER_HEIGHT - COLLISION_EPS;
-                    if snap_to.map_or(true, |s| candidate < s) {
+                    if snap_to.is_none_or(|s| candidate < s) {
                         snap_to = Some(candidate);
                     }
                     going_down = false;
@@ -636,9 +646,9 @@ fn load_glb(bytes: &[u8]) -> GlbAsset {
                 .map(|it| it.into_f32().collect())
                 .unwrap_or_else(|| vec![[0.0, 0.0]; positions.len()]);
 
-            for i in 0..positions.len() {
+            for (i, pos) in positions.iter().enumerate() {
                 vertices.push(TexturedVertex {
-                    pos: positions[i],
+                    pos: *pos,
                     normal: *normals.get(i).unwrap_or(&[0.0, 1.0, 0.0]),
                     uv: *uvs.get(i).unwrap_or(&[0.0, 0.0]),
                 });
@@ -832,10 +842,22 @@ struct State {
     fps_display: f32,
     frame_ms_display: f32,
     first_frame_done: bool,
+
+    // Chat HUD (all platforms; drain_network + network channels are native-only).
+    chat: chat::ChatState,
+    #[cfg(not(target_arch = "wasm32"))]
+    network_rx: std::sync::mpsc::Receiver<network::NetworkEvent>,
+    #[cfg(not(target_arch = "wasm32"))]
+    network_tx: std::sync::mpsc::Sender<network::NetworkCommand>,
 }
 
 impl State {
-    async fn new(display: OwnedDisplayHandle, window: Arc<Window>) -> State {
+    async fn new(
+        display: OwnedDisplayHandle,
+        window: Arc<Window>,
+        #[cfg(not(target_arch = "wasm32"))]
+        proxy: winit::event_loop::EventLoopProxy<AppEvent>,
+    ) -> State {
         // `*_from_env` so env vars (WGPU_BACKEND, WGPU_POWER_PREF,
         // WGPU_ALLOW_UNDERLYING_NONCOMPLIANT_ADAPTER, …) are honoured. The
         // plain `new_with_display_handle` ignores them and would silently
@@ -935,7 +957,7 @@ impl State {
             usage: wgpu::BufferUsages::INDEX,
         });
         let blocks = build_course();
-        let instances: Vec<Instance> = blocks.iter().map(Block::to_instance).collect();
+        let instances: Vec<Instance> = blocks.iter().map(|b| b.to_instance()).collect();
         let instance_count = instances.len() as u32;
         let instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("instances"),
@@ -1384,6 +1406,11 @@ impl State {
 
         let camera = Camera::new(size.width as f32 / size.height.max(1) as f32);
 
+        // ── Chat + network init (native-only) ──
+        let chat = chat::ChatState::new();
+        #[cfg(not(target_arch = "wasm32"))]
+        let network_handle = network::start(proxy);
+
         let s = State {
             instance,
             window,
@@ -1434,6 +1461,11 @@ impl State {
             fps_display: 0.0,
             frame_ms_display: 0.0,
             first_frame_done: false,
+            chat,
+            #[cfg(not(target_arch = "wasm32"))]
+            network_rx: network_handle.rx,
+            #[cfg(not(target_arch = "wasm32"))]
+            network_tx: network_handle.tx,
         };
         s.configure_surface();
         s
@@ -1590,6 +1622,12 @@ impl State {
         let present_mode_str = fmt_present_mode(self.present_mode);
         let viewport_w = self.size.width;
         let viewport_h = self.size.height;
+
+        // Capture a pending command from render_panel after run_ui ends.
+        // (We can't borrow self.network_tx inside the run_ui closure, so we
+        // collect the command here and send it afterward.)
+        #[cfg(not(target_arch = "wasm32"))]
+        let mut pending_chat_cmd: Option<network::NetworkCommand> = None;
 
         let full_output = self.egui_ctx.run_ui(raw_input, |root_ui| {
             let ctx = root_ui.ctx().clone();
@@ -1760,6 +1798,20 @@ impl State {
                             });
                     });
             }
+
+            // ─ Chat panel (bottom of screen) ─
+            // render_panel is native-only; wasm32 path is a no-op until Phase 4.
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                // render_panel returns Some(cmd) when the user submits text via
+                // Enter inside the egui TextEdit.  We can't borrow network_tx
+                // here (it's behind &mut self), so we stash it in pending_chat_cmd
+                // and flush it after run_ui returns.
+                let _ = pending_chat_cmd; // suppress unused warning before first use
+                if let Some(cmd) = chat::render_panel(&ctx, &mut self.chat) {
+                    pending_chat_cmd = Some(cmd);
+                }
+            }
         });
 
         // Egui platform output: clipboard, cursor icon, etc.
@@ -1888,6 +1940,21 @@ impl State {
             self.exit_requested = true;
         }
 
+        // ── Flush any chat command produced by render_panel (native-only) ──
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(cmd) = pending_chat_cmd {
+            let _ = self.network_tx.send(cmd);
+        }
+
+        // ── Reacquire cursor if chat just closed (e.g. via egui TextEdit Enter) ──
+        // render_panel sets chat_active = false when the user submits.
+        // The keyboard Enter handler already reacquires, but the egui path
+        // (TextEdit lost_focus on Enter) may have run inside run_ui without
+        // going through the keyboard arm — cover it here.
+        if !self.chat.chat_active && !self.paused && !self.captured && grab_cursor(&self.window) {
+            self.captured = true;
+        }
+
         // ── Telemetry ──
         if !self.first_frame_done {
             self.first_frame_done = true;
@@ -2001,9 +2068,31 @@ struct App {
     /// once it's ready.
     #[cfg(target_arch = "wasm32")]
     pending_state: std::rc::Rc<std::cell::RefCell<Option<State>>>,
+    /// EventLoopProxy so the network background thread can wake the winit loop.
+    /// Stored here so it can be passed to State::new on first `resumed`.
+    #[cfg(not(target_arch = "wasm32"))]
+    proxy: Option<winit::event_loop::EventLoopProxy<AppEvent>>,
 }
 
-impl ApplicationHandler for App {
+impl ApplicationHandler<AppEvent> for App {
+    fn user_event(&mut self, _event_loop: &ActiveEventLoop, _event: AppEvent) {
+        // ChatWakeup: network background thread has new events ready.
+        // The actual drain happens in about_to_wait (called right after this
+        // returns) so we just need to ensure a redraw is scheduled.
+        if let Some(state) = self.state.as_ref() {
+            state.window.request_redraw();
+        }
+    }
+
+    fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
+        // Drain incoming network events into chat state once per frame.
+        // This is native-only; on wasm32 the network path is Phase 4.
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(state) = self.state.as_mut() {
+            chat::drain_network(&state.network_rx, &mut state.chat);
+        }
+    }
+
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.state.is_some() {
             return;
@@ -2034,7 +2123,10 @@ impl ApplicationHandler for App {
 
         #[cfg(not(target_arch = "wasm32"))]
         {
-            let state = pollster::block_on(State::new(display, window.clone()));
+            // Take the proxy we stored at startup.  Unwrap is safe: the proxy
+            // is set in run_event_loop before event_loop.run_app is called.
+            let proxy = self.proxy.take().expect("EventLoopProxy must be set before resumed");
+            let state = pollster::block_on(State::new(display, window.clone(), proxy));
             self.state = Some(state);
             if let Some(s) = self.state.as_ref() {
                 s.window.request_redraw();
@@ -2073,25 +2165,20 @@ impl ApplicationHandler for App {
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
             WindowEvent::Resized(size) => state.resize(size),
-            WindowEvent::Focused(false) => {
-                if state.captured {
-                    release_cursor(&state.window);
-                    state.captured = false;
-                    state.paused = true;
-                }
+            WindowEvent::Focused(false) if state.captured => {
+                release_cursor(&state.window);
+                state.captured = false;
+                state.paused = true;
             }
+            WindowEvent::Focused(false) => {}
             WindowEvent::MouseInput {
                 state: ElementState::Pressed,
                 button: MouseButton::Left,
                 ..
-            } => {
-                // If egui consumed the click (e.g. pressed Resume / Exit), do nothing —
-                // the result is picked up after egui's UI builder runs.
-                // Otherwise, an un-captured click means "start playing".
-                if !egui_response.consumed && !state.captured && !state.paused {
-                    close_menu_and_play(state);
-                }
+            } if !egui_response.consumed && !state.captured && !state.paused => {
+                close_menu_and_play(state);
             }
+            WindowEvent::MouseInput { .. } => {}
             WindowEvent::KeyboardInput {
                 event:
                     KeyEvent {
@@ -2102,18 +2189,76 @@ impl ApplicationHandler for App {
                     },
                 ..
             } => {
-                // Esc toggles the menu — always handled by us, regardless of egui.
+                // Esc: if chat is open, close it; otherwise toggle pause menu.
                 if let Key::Named(NamedKey::Escape) = logical_key {
                     if key_state == ElementState::Pressed {
-                        if state.paused {
+                        if state.chat.chat_active {
+                            state.chat.close_input();
+                            // Reacquire cursor only if not in the pause menu.
+                            if !state.paused && !state.captured && grab_cursor(&state.window) {
+                                state.captured = true;
+                            }
+                        } else if state.paused {
                             close_menu_and_play(state);
                         } else if state.captured {
                             open_menu(state);
                         }
                     }
                 }
+
+                // T / Y open chat input (all-chat / team-chat).
+                // Only when not already in chat mode.
+                if key_state == ElementState::Pressed && !state.chat.chat_active && !state.paused {
+                    if code == KeyCode::KeyT {
+                        state.chat.open_input(ffoie_protocol::Channel::All);
+                        // Clear any held movement keys so the player doesn't
+                        // keep moving while typing.
+                        state.input.keys.clear();
+                        // Release cursor grab so the OS delivers key events to
+                        // the egui text-edit widget.
+                        if state.captured {
+                            release_cursor(&state.window);
+                            state.captured = false;
+                        }
+                    } else if code == KeyCode::KeyY {
+                        state.chat.open_input(ffoie_protocol::Channel::Team);
+                        state.input.keys.clear();
+                        // Same cursor release as T.
+                        if state.captured {
+                            release_cursor(&state.window);
+                            state.captured = false;
+                        }
+                    }
+                }
+
+                // Enter: submit chat message when input is open.
+                // (egui's TextEdit also fires on Enter when focused, but we
+                // handle it here for safety — the egui path is the primary one.)
+                if key_state == ElementState::Pressed {
+                    if let Key::Named(NamedKey::Enter) = logical_key {
+                        if state.chat.chat_active {
+                            #[cfg(not(target_arch = "wasm32"))]
+                            if let Some(cmd) = chat::submit(&mut state.chat) {
+                                let _ = state.network_tx.send(cmd);
+                            }
+                            #[cfg(target_arch = "wasm32")]
+                            { state.chat.chat_active = false; state.chat.input_buffer.clear(); }
+                            // Reacquire cursor.
+                            if !state.paused && !state.captured && grab_cursor(&state.window) {
+                                state.captured = true;
+                            }
+                        }
+                    }
+                }
+
                 match key_state {
-                    ElementState::Pressed => { state.input.keys.insert(code); }
+                    ElementState::Pressed => {
+                        // While chat input is open, do not insert movement keys —
+                        // they should go to the egui text-edit widget instead.
+                        if !state.chat.chat_active {
+                            state.input.keys.insert(code);
+                        }
+                    }
                     ElementState::Released => { state.input.keys.remove(&code); }
                 }
             }
@@ -2132,8 +2277,12 @@ impl ApplicationHandler for App {
     fn device_event(&mut self, _event_loop: &ActiveEventLoop, _id: DeviceId, event: DeviceEvent) {
         let Some(state) = self.state.as_mut() else { return };
         if let DeviceEvent::MouseMotion { delta } = event {
-            state.input.mouse_dx += delta.0 as f32;
-            state.input.mouse_dy += delta.1 as f32;
+            // Suppress mouse-look while chat input is open — the cursor is
+            // ungrabbed and the delta would pan the camera unexpectedly.
+            if !state.chat.chat_active {
+                state.input.mouse_dx += delta.0 as f32;
+                state.input.mouse_dy += delta.1 as f32;
+            }
         }
     }
 }
@@ -2168,12 +2317,15 @@ pub fn run_wasm() {
 }
 
 fn run_event_loop() {
-    let event_loop = EventLoop::new().unwrap();
+    // Use a typed EventLoop so the network background thread can send
+    // AppEvent::ChatWakeup through EventLoopProxy to wake the winit loop.
+    let event_loop = EventLoop::<AppEvent>::with_user_event().build().unwrap();
     event_loop.set_control_flow(ControlFlow::Poll);
 
     #[cfg(not(target_arch = "wasm32"))]
     {
-        let mut app = App::default();
+        let proxy = event_loop.create_proxy();
+        let mut app = App { proxy: Some(proxy), ..App::default() };
         event_loop.run_app(&mut app).unwrap();
     }
     #[cfg(target_arch = "wasm32")]
