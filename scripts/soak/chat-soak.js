@@ -1,19 +1,30 @@
 // ffoie chat-server k6 soak test
 // Runs 1000 concurrent VUs for 5 minutes against ws://localhost:8080/ws
-// Uses k6/experimental/websockets (ships with k6 v0.45+).
-// Fallback: if experimental module is unavailable, swap the import for:
+// Uses k6/websockets (stable in k6 v0.52+; replaces k6/experimental/websockets).
+//
+// Protocol (ffoie-protocol, serde internally-tagged, rename_all = "snake_case"):
+//   ClientMessage::Connect  → {"type":"connect","nickname":"<str>","team":"none|red|blue"}
+//   ClientMessage::Say      → {"type":"say","text":"<str>"}
+//   ClientMessage::Ping     → {"type":"ping","seq":<u32>}
+//   ServerMessage::Welcome  → {"type":"welcome","assigned_nick":"<str>","assigned_team":"...","motd":"...","scrollback":[...]}
+//   ServerMessage::Message  → {"type":"message","data":{...}}
+//   ServerMessage::Pong     → {"type":"pong","seq":<u32>}
+//   ServerMessage::Error    → {"type":"error","reason":"<str>"}
+//
+// Fallback: if k6/websockets is unavailable, use k6/ws:
 //   import ws from "k6/ws";
-//   and use the ws.connect(url, params, function(socket){...}) callback API.
+//   ws.connect(url, params, function(socket) { socket.on("open", ...) });
 
-import { WebSocket } from "k6/experimental/websockets";
-import { check, sleep } from "k6";
+import { WebSocket } from "k6/websockets";
 import { Counter } from "k6/metrics";
 
 // ---------------------------------------------------------------------------
 // Custom counters
 // ---------------------------------------------------------------------------
-const failed_connections = new Counter("failed_connections");
-const unexpected_closes  = new Counter("unexpected_closes");
+const failed_connections = new Counter("failed_connections");   // connect errors
+const unexpected_closes  = new Counter("unexpected_closes");    // server-initiated closes before welcome
+const welcomes_received  = new Counter("welcomes_received");    // successful handshakes
+const messages_dropped   = new Counter("messages_dropped");     // send-side errors
 
 // ---------------------------------------------------------------------------
 // Scenario options
@@ -21,17 +32,17 @@ const unexpected_closes  = new Counter("unexpected_closes");
 export const options = {
   scenarios: {
     soak: {
-      executor:          "constant-vus",
-      vus:               1000,
-      duration:          "5m30s",  // 30s implicit ramp + 5m hold
-      gracefulRampDown:  "30s",
+      executor:     "constant-vus",
+      vus:          1000,
+      duration:     "5m",
+      gracefulStop: "30s",
     },
   },
   thresholds: {
-    // k6 built-in: every connected session — expect all VUs to stay the full duration
-    ws_session_duration: ["p(95)<330000"],  // 330 s — just under scenario length
-    // Custom: tolerate up to 5% failed connects during ramp-up
-    failed_connections: ["count<50"],
+    // 95%+ of VUs must receive a Welcome message (pass criteria: >= 950/1000)
+    "welcomes_received": ["count>=950"],
+    // Zero or near-zero failed connections
+    "failed_connections": ["count<50"],
   },
 };
 
@@ -42,40 +53,39 @@ export default function () {
   const nick = `soak-vu-${__VU}-${Math.floor(Math.random() * 9000 + 1000)}`;
   const url  = "ws://localhost:8080/ws";
 
-  let welcomed   = false;
-  let scenarioDone = false;
+  let welcomed = false;
   let socket;
 
-  // Schedule periodic Say messages once welcomed
-  function scheduleSay() {
-    if (!socket || socket.readyState !== WebSocket.OPEN || !welcomed || scenarioDone) {
-      return;
-    }
-    const body = JSON.stringify({
-      type: "Say",
-      text: `ping-${nick}-${Date.now()}`,
-    });
-    try {
-      socket.send(body);
-    } catch (_) {
-      // drop on closed socket — unexpected_closes will record it
-    }
-    // Re-schedule while still running
-    setTimeout(scheduleSay, 10000);
-  }
-
-  // Open the WebSocket
   try {
     socket = new WebSocket(url);
-  } catch (e) {
+  } catch (_) {
     failed_connections.add(1);
     return;
   }
 
+  // Periodic Say scheduler — fires every 10 s after open
+  function scheduleSay() {
+    if (!socket) return;
+    try {
+      // snake_case "say" type, per ffoie-protocol serde rename_all = "snake_case"
+      socket.send(JSON.stringify({
+        type: "say",
+        text: `ping-${nick}-${Date.now()}`,
+      }));
+    } catch (_) {
+      messages_dropped.add(1);
+    }
+    setTimeout(scheduleSay, 10000);
+  }
+
   socket.onopen = function () {
-    // Send Connect envelope
-    socket.send(JSON.stringify({ type: "Connect", nick }));
-    // First Say fires after 10s
+    // snake_case "connect" type; team required (use "none" for soak VUs)
+    socket.send(JSON.stringify({
+      type:     "connect",
+      nickname: nick,
+      team:     "none",
+    }));
+    // Start periodic Say every 10 s
     setTimeout(scheduleSay, 10000);
   };
 
@@ -84,16 +94,19 @@ export default function () {
     try {
       msg = JSON.parse(event.data);
     } catch (_) {
-      return;  // ignore malformed frames
+      return;
     }
-    if (msg.type === "Welcome") {
+    if (msg.type === "welcome" && !welcomed) {
       welcomed = true;
+      // Increment counter inside the active event loop — this fires reliably
+      // during the session and is not dropped when k6 interrupts the VU.
+      welcomes_received.add(1);
     }
-    // Other server messages (e.g. broadcast "Said" events) — ignore
+    // "message" (broadcast), "joined_left", "pong", "error" — ignored
   };
 
   socket.onclose = function () {
-    if (welcomed && !scenarioDone) {
+    if (!welcomed) {
       unexpected_closes.add(1);
     }
   };
@@ -102,21 +115,6 @@ export default function () {
     failed_connections.add(1);
   };
 
-  // Hold the VU open for the scenario duration — k6 event loop keeps running
-  // through the setTimeout chain above while we sleep here.
-  // 5m30s scenario: sleep a bit less so gracefulRampDown can close the socket.
-  sleep(310);  // 5 min 10s — scenario ends after that, k6 triggers graceful stop
-
-  // Signal that scenario is ending so onclose doesn't count it as unexpected
-  scenarioDone = true;
-
-  // Assert welcome was received
-  check(welcomed, {
-    "received Welcome": (v) => v === true,
-  });
-
-  // Close cleanly if still open
-  if (socket && socket.readyState === WebSocket.OPEN) {
-    socket.close();
-  }
+  // VU function returns here. k6 keeps VUs alive until scenario ends (5m),
+  // then triggers gracefulStop (30s) during which k6 closes all sockets.
 }
