@@ -1,0 +1,13 @@
+[package]
+name = "ffoie-protocol"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.87"
+publish = false
+
+# No [target] sections — this crate is pure cross-platform (native + wasm32).
+# No tokio, no chrono, no native-only deps.
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }

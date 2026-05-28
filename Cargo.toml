@@ -1,7 +1,7 @@
 [workspace]
 resolver = "2"
-members = ["ffoie-engine", "ffoie-chat-server", "ffoie-protocol"]
-default-members = ["ffoie-engine"]
+members = ["crates/ffoie-engine", "crates/ffoie-chat-server", "crates/ffoie-protocol"]
+default-members = ["crates/ffoie-engine"]
 
 # Shared deps used by two or more workspace members.
 # Engine-only deps (wgpu, winit, egui, etc.) stay in ffoie-engine/Cargo.toml.
