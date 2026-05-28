@@ -38,7 +38,8 @@ services:
       args:
         FFOIE_CHAT_URL: ${FFOIE_CHAT_URL:-ws://localhost:8080/ws}
     ports:
-      - "8081:80"
+      # Override the host port via FFOIE_WEB_PORT if 8081 is already taken.
+      - "${FFOIE_WEB_PORT:-8081}:80"
     restart: unless-stopped
     depends_on:
       chat-server:
