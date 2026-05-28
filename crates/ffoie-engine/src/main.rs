@@ -6,6 +6,11 @@
 //!   • Proper egui UI overlay: top-left FPS readout + centered pause menu.
 //!   • Floor culling fix (was facing the wrong way — invisible from above).
 
+// Chat network module (native-only; gated inside the file with #![cfg(...)]).
+// Plan 03-05 wires the types into the engine; this declaration triggers
+// compilation so that cargo build -p ffoie catches any errors in network.rs.
+pub mod network;
+
 use std::collections::HashSet;
 use std::sync::{Arc, OnceLock};
 // `web_time` re-exports `std::time` on native and provides browser-backed

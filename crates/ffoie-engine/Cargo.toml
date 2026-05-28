@@ -25,11 +25,22 @@ image = { version = "0.25", default-features = false, features = ["png", "jpeg"]
 # `std::time::Instant` panics on wasm32-unknown-unknown. web-time is a drop-in
 # replacement that uses performance.now() on web and std::time on native.
 web-time = "1"
+# Protocol types shared with the chat server (pure data crate, wasm32-safe).
+ffoie-protocol = { path = "../ffoie-protocol" }
+# JSON serialization for chat wire format.
+serde_json = "1"
 
 # Native-only deps
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 env_logger = "0.11"
 pollster = "0.4"
+# WebSocket client: cross-platform ewebsock (uses tokio-tungstenite on native,
+# browser WebSocket on wasm32). The tokio feature enables the native path.
+ewebsock = { version = "0.8", features = ["tokio"] }
+# Tokio async runtime for the background WS thread (native only).
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"] }
+# Fast PRNG for reconnect backoff jitter (no_std-safe, tiny dep).
+fastrand = "2"
 
 # Web-only deps
 [target.'cfg(target_arch = "wasm32")'.dependencies]
