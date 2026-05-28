@@ -573,10 +573,6 @@ mod tests {
     fn yellow() -> Color32 {
         Color32::from_rgb(220, 220, 15)
     }
-    fn green() -> Color32 {
-        Color32::from_rgb(15, 200, 15)
-    }
-
     #[test]
     fn test_parse_colors_plain_text() {
         let spans = parse_colors("hello");
@@ -754,7 +750,7 @@ mod tests {
         #[test]
         fn test_drain_connected_populates_state() {
             use crate::network::NetworkEvent;
-            use ffoie_protocol::{Channel, ChatMessage, PlayerEntry, Team};
+            use ffoie_protocol::{Channel, ChatMessage, Team};
             use std::sync::mpsc;
 
             let (tx, rx) = mpsc::channel::<NetworkEvent>();
