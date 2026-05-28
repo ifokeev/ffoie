@@ -875,8 +875,10 @@ dependencies = [
  "fastrand",
  "ffoie-protocol",
  "glam",
+ "gloo-timers",
  "gltf",
  "image",
+ "js-sys",
  "ktx2",
  "log",
  "pollster",
@@ -1155,6 +1157,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "19fc433e8437a212d1b6f1e68c7824af3aed907da60afa994e7f542d18d12aa9"
 dependencies = [
  "bytemuck",
+]
+
+[[package]]
+name = "gloo-timers"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bbb143cf96099802033e0d4f4963b19fd2e0b728bcf076cd9cf7f6634f092994"
+dependencies = [
+ "futures-channel",
+ "futures-core",
+ "js-sys",
+ "wasm-bindgen",
 ]
 
 [[package]]
