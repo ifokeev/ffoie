@@ -6,10 +6,12 @@
 # Logs generated at runtime.
 /logs
 
-# Landing site and packaging — not needed to build the server binary.
+# Landing site and packaging — not needed by either docker build.
 /website
-/web-client
 /packaging
+# Note: /web-client IS needed by engine-web's Dockerfile.web (trunk manifest);
+# leaving it in context. It's tiny (one HTML file), so this doesn't bloat
+# the chat-server build either.
 
 # Debug logs, macOS kernel panics — repo reference only.
 /debug

@@ -26,3 +26,20 @@ services:
       - FFOIE_CHAT_MAX_LAG_DISCONNECTS
       - RUST_LOG
       - RUST_LOG_FORMAT
+
+  # Wasm engine bundle, served as static files via nginx.
+  # The browser loads this from http://localhost:8081 and connects to the
+  # chat-server via the host-mapped ws://localhost:8080/ws (baked into the
+  # bundle at build time via FFOIE_CHAT_URL).
+  engine-web:
+    build:
+      context: .
+      dockerfile: crates/ffoie-engine/Dockerfile.web
+      args:
+        FFOIE_CHAT_URL: ${FFOIE_CHAT_URL:-ws://localhost:8080/ws}
+    ports:
+      - "8081:80"
+    restart: unless-stopped
+    depends_on:
+      chat-server:
+        condition: service_healthy

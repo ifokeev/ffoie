@@ -1,0 +1,53 @@
+# Multi-stage build for the wasm engine bundle served as static files.
+# Stage 1: trunk + wasm32 toolchain produce the bundle.
+# Stage 2: nginx:alpine serves it.
+#
+# The chat URL is baked at compile time via option_env!("FFOIE_CHAT_URL").
+# For the compose stack the default targets the host-mapped chat-server port
+# so the BROWSER (which runs on the host, not inside docker) connects to
+# ws://localhost:8080/ws. Override with `--build-arg FFOIE_CHAT_URL=wss://...`
+# at build time for other deploy targets.
+
+ARG FFOIE_CHAT_URL=ws://localhost:8080/ws
+
+# ---------- Stage 1: build the wasm bundle ----------
+FROM rust:1.95-slim AS builder
+
+# Trunk needs git + curl to install; we also need the wasm32 target.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends curl ca-certificates pkg-config \
+ && rm -rf /var/lib/apt/lists/* \
+ && rustup target add wasm32-unknown-unknown
+
+# Install trunk from a prebuilt binary (faster than `cargo install trunk`).
+RUN curl -fsSL https://github.com/trunk-rs/trunk/releases/download/v0.21.14/trunk-x86_64-unknown-linux-gnu.tar.gz \
+      | tar -xz -C /usr/local/bin
+
+WORKDIR /build
+COPY . .
+
+# Re-declare ARG inside the stage so it's available in RUN.
+ARG FFOIE_CHAT_URL
+ENV FFOIE_CHAT_URL=${FFOIE_CHAT_URL}
+
+# Build the wasm bundle.
+# We run trunk from the engine crate directory (which has a real package manifest,
+# not a virtual workspace manifest) so trunk's cargo_metadata can locate the root
+# package correctly. The absolute path to web-client/index.html is passed so trunk
+# resolves the data-trunk href="../crates/ffoie-engine/Cargo.toml" relative to
+# the html file's own directory.
+WORKDIR /build/crates/ffoie-engine
+RUN trunk build --release --public-url / --dist /dist /build/web-client/index.html
+
+# ---------- Stage 2: serve via nginx ----------
+FROM nginx:alpine
+
+# Drop nginx's default page; install our bundle.
+RUN rm -rf /usr/share/nginx/html/*
+COPY --from=builder /dist /usr/share/nginx/html
+
+# wasm needs the right MIME type or browsers refuse to instantiate it.
+# nginx:alpine usually has it via mime.types, but be defensive.
+RUN echo 'types { application/wasm wasm; }' > /etc/nginx/conf.d/wasm-mime.conf
+
+EXPOSE 80
