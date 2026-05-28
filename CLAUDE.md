@@ -43,9 +43,9 @@ mismatches are visible at a glance instead of hidden in logs.
 
 ## Single-binary architecture (engine crate)
 
-The engine binary lives in `crates/ffoie-engine/`. The core logic is in
-`src/main.rs` (~2178 lines, heavily commented). Starting with v1.1, new
-functionality is split into sibling modules (`chat.rs`, `network.rs`) rather
+The engine binary lives in `crates/ffoie-engine/`. The core logic is the large,
+heavily-commented single-file `src/main.rs` (~2.5k lines). Starting with v1.1, new
+functionality is split into sibling modules (`chat.rs`, `network/`) rather
 than extending `main.rs` inline — see the "Workspace layout" section below for
 the full module policy. The existing `main.rs` remains single-file for now;
 a full modular refactor is planned for a later milestone.
@@ -181,9 +181,10 @@ engine.
 
 **Module policy (relaxed from the original single-file rule):**
 
-Starting with v1.1, new engine functionality goes in sibling `.rs` files under
-`crates/ffoie-engine/src/` (e.g. `network.rs`, `chat.rs`). The existing
-`main.rs` (~2178 LOC) remains single-file for now; a full modular refactor is
+Starting with v1.1, new engine functionality goes in sibling modules under
+`crates/ffoie-engine/src/` (e.g. `network/`, `chat.rs`). The existing
+single-file `main.rs` (~2.5k LOC, well under the ~3000-line split threshold)
+stays as-is for now; a full modular refactor is
 planned for a later milestone. Until that refactor, `main.rs` may grow
 `mod foo;` declarations and a small number of integration call sites for new
 modules — it does **not** grow new subsystems inline.
@@ -213,8 +214,8 @@ ffoie/
 │   ├── ffoie-engine/       engine binary (native + wasm32)
 │   │   ├── Cargo.toml
 │   │   └── src/
-│   │       ├── main.rs     engine core (~2178 LOC; single-file by convention, new code in modules)
-│   │       ├── network.rs  WS client lifecycle (new in v1.1)
+│   │       ├── main.rs     engine core (~2.5k LOC; single-file by convention, new code in modules)
+│   │       ├── network/    WS client (mod/types/native/wasm — ewebsock, reconnect, heartbeat; new in v1.1)
 │   │       ├── chat.rs     chat HUD state + render (new in v1.1)
 │   │       ├── shader.wgsl instanced lit geometry (cubes)
 │   │       ├── floor.wgsl  procedural grid floor (notebook style)
@@ -285,9 +286,9 @@ Build-artifact paths:
 - Constants at the top of `crates/ffoie-engine/src/main.rs` are **designed to
   be tuned**. Most are movement-feel knobs.
 - New engine functionality in v1.1+ lives in modules under
-  `crates/ffoie-engine/src/` (e.g. `network.rs`, `chat.rs`). The single-file
+  `crates/ffoie-engine/src/` (e.g. `network/`, `chat.rs`). The single-file
   `main.rs` convention is relaxed for new code; a full modular refactor of the
-  existing ~2178-line `main.rs` is a future task.
+  existing ~2.5k-line `main.rs` is a future task.
 - WebGPU/Vulkan/Metal optional features stay off the default path unless
   necessary — the build must work on the minimum-spec GPU per platform with
   no explicit feature negotiation.
