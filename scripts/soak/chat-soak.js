@@ -1,5 +1,6 @@
 // ffoie chat-server k6 soak test
-// Runs 1000 concurrent VUs for 5 minutes against ws://localhost:8080/ws
+// Runs 1000 concurrent VUs for 5 minutes against ws://localhost:47820/ws
+// Override the target with `k6 run -e WS_URL=ws://host:port/ws ...`.
 // Uses k6/websockets (stable in k6 v0.52+; replaces k6/experimental/websockets).
 //
 // Protocol (ffoie-protocol, serde internally-tagged, rename_all = "snake_case"):
@@ -51,7 +52,7 @@ export const options = {
 // ---------------------------------------------------------------------------
 export default function () {
   const nick = `soak-vu-${__VU}-${Math.floor(Math.random() * 9000 + 1000)}`;
-  const url  = "ws://localhost:8080/ws";
+  const url  = __ENV.WS_URL || "ws://localhost:47820/ws";
 
   let welcomed = false;
   let socket;
