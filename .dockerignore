@@ -1,0 +1,42 @@
+# Build artifacts — large; excluded so docker build context stays small.
+/target
+**/target
+/dist
+
+# Logs generated at runtime.
+/logs
+
+# Landing site and packaging — not needed to build the server binary.
+/website
+/web-client
+/packaging
+
+# Debug logs, macOS kernel panics — repo reference only.
+/debug
+
+# CI/CD workflows — not part of the build.
+/.github
+
+# Git metadata and planning files — internal state; must not enter the image (T-05-01).
+.git
+/.planning
+
+# macOS junk.
+.DS_Store
+
+# Editor swap files.
+*.swp
+*.swo
+.idea/
+.vscode/
+
+# Env files that may contain secrets — NEVER embed in an image (T-05-01).
+.env
+.env.local
+
+# Platform binaries.
+*.pdb
+*.exe
+
+# k6 soak test output — not needed at build time.
+soak-results.json
