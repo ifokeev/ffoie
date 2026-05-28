@@ -852,6 +852,7 @@ dependencies = [
  "fastrand",
  "ffoie-protocol",
  "futures-util",
+ "libc",
  "parking_lot",
  "serde",
  "serde_json",

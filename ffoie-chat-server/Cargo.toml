@@ -40,3 +40,4 @@ ffoie-protocol = { path = "../ffoie-protocol" }
 
 [dev-dependencies]
 tokio-tungstenite = { version = "0.29", features = ["rustls-tls-webpki-roots"] }
+libc = "0.2"

@@ -1,43 +1,8 @@
-use std::sync::Arc;
 use std::time::Duration;
 
-use axum::extract::State;
-use axum::routing::get;
-use axum::{Json, Router};
-use serde::Serialize;
-use tower_http::cors::CorsLayer;
-use tower_http::trace::TraceLayer;
 use tracing_subscriber::EnvFilter;
 
-mod config;
-mod nickname;
-mod rate_limit;
-mod state;
-mod ws;
-
-use config::Config;
-use state::AppState;
-
-// ── Healthz response ──────────────────────────────────────────────────────────
-
-#[derive(Serialize)]
-struct HealthzResponse {
-    status: &'static str,
-    uptime_seconds: u64,
-    connections: usize,
-    version: &'static str,
-}
-
-// ── Handlers ──────────────────────────────────────────────────────────────────
-
-async fn healthz(State(state): State<AppState>) -> Json<HealthzResponse> {
-    Json(HealthzResponse {
-        status: "ok",
-        uptime_seconds: state.started_at.elapsed().as_secs(),
-        connections: state.connection_count(),
-        version: "v1.1",
-    })
-}
+use ffoie_chat_server::{build_app, config::Config};
 
 // ── Entry point ───────────────────────────────────────────────────────────────
 
@@ -70,15 +35,8 @@ async fn main() {
 
     let bind_addr = config.bind;
 
-    let state = AppState::new(Arc::new(config));
-
-    // Build the router.
-    let app = Router::new()
-        .route("/healthz", get(healthz))
-        .route("/ws", get(ws::ws_handler))
-        .layer(CorsLayer::permissive())
-        .layer(TraceLayer::new_for_http())
-        .with_state(state.clone());
+    // Build router and shared AppState via the library helper.
+    let (app, state) = build_app(config);
 
     // Bind and serve.
     let listener = tokio::net::TcpListener::bind(bind_addr)
