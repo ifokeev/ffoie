@@ -244,6 +244,13 @@ async fn team_filter() {
     let (mut sink_c, mut stream_c) = connect_ws(port).await;
     let (_nick_c, team_c) = send_connect(&mut sink_c, &mut stream_c, "PlayerC", Team::Red).await;
 
+    // Settle: give all three join-broadcast notifications time to fan out to
+    // every subscriber before we start draining fixed counts.  Without this,
+    // the brief window between send_connect(C) returning and C's connection
+    // task registering + broadcasting JoinedLeft{Joined} can cause the drain
+    // counts to be inconsistent and the test to flake.
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
     // Drain all join notifications from each stream before asserting.
     // A connects first; it sees its own join, then B's join, then C's join = 3.
     drain(&mut stream_a, 3).await;
