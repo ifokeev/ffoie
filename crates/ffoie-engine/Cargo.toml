@@ -53,4 +53,10 @@ web-sys = { version = "0.3", features = [
     "Window",
     "Element",
     "HtmlCanvasElement",
+    "EventTarget",
 ] }
+# Async sleep primitive for wasm32 (tokio::time::sleep is unavailable on wasm).
+# TimeoutFuture wraps setTimeout as a Future.
+gloo-timers = { version = "0.3", features = ["futures"] }
+# ewebsock without tokio feature for wasm32 path.
+ewebsock = "0.8"
