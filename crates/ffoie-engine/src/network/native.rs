@@ -1,8 +1,7 @@
-//! network.rs — WebSocket client lifecycle for the native FFOIE engine.
+//! native.rs — Tokio-backed WebSocket client for the native FFOIE engine.
 //!
 //! This module is **native-only** (gated by `#![cfg(not(target_arch = "wasm32"))]`).
-//! The wasm32 client path will be added in Phase 4; for now only the native
-//! tokio-backed path is wired.
+//! The wasm32 client path will be added in Phase 4 plan 04-02 as `wasm.rs`.
 //!
 //! # Architecture
 //!
@@ -27,85 +26,10 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use std::time::Duration;
 
 use ewebsock::{WsEvent, WsMessage, WsSender};
-use ffoie_protocol::{ChatMessage, ClientMessage, PlayerEntry, ServerMessage, Team};
+use ffoie_protocol::{ClientMessage, ServerMessage, Team};
 use winit::event_loop::EventLoopProxy;
 
-// ── Public event types ────────────────────────────────────────────────────────
-
-/// User-defined winit event for waking the main loop from `ControlFlow::Wait`.
-///
-/// The event loop must be created as `EventLoop::<AppEvent>::new()` (plan
-/// 03-05 performs that wiring).  The network background thread sends
-/// `ChatWakeup` through the `EventLoopProxy` whenever a new [`NetworkEvent`]
-/// is pushed, so the main thread wakes immediately instead of waiting for the
-/// next timer tick.
-#[derive(Debug, Clone)]
-pub enum AppEvent {
-    /// Signals the main thread that at least one [`NetworkEvent`] is ready.
-    ChatWakeup,
-}
-
-// ── Network events (background → main thread) ─────────────────────────────────
-
-/// Events emitted by the network background thread and consumed by the main thread.
-///
-/// Drain at most 32 per frame with `Receiver::try_recv` to bound per-frame
-/// work (see PITFALLS.md Pitfall 13 / CONTEXT.md drain-cap decision).
-#[derive(Debug, Clone)]
-pub enum NetworkEvent {
-    /// Server accepted our `Connect`; carries the session bootstrap data.
-    Connected {
-        assigned_nick: String,
-        assigned_team: Team,
-        motd: String,
-        scrollback: Vec<ChatMessage>,
-    },
-    /// An ordinary chat message broadcast to this client.
-    Message(ChatMessage),
-    /// A player joined or left.
-    JoinedLeft {
-        nickname: String,
-        team: Team,
-        joined: bool,
-    },
-    /// Response to `NetworkCommand::Who`.
-    WhoList(Vec<PlayerEntry>),
-    /// The reconnect loop is waiting before the next attempt.
-    Reconnecting {
-        attempt: u32,
-        delay_ms: u64,
-    },
-    /// WebSocket connection was closed (raised before `Reconnecting`).
-    Disconnected,
-}
-
-// ── Network commands (main thread → background) ────────────────────────────────
-
-/// Commands the main thread sends to the network background thread.
-#[derive(Debug, Clone)]
-pub enum NetworkCommand {
-    /// Send a global (all-chat) message.
-    Say(String),
-    /// Send a team-filtered message.
-    SayTeam(String),
-    /// Request the current player list.
-    Who,
-    /// Shut down the background thread cleanly.
-    Shutdown,
-}
-
-// ── Public handle ─────────────────────────────────────────────────────────────
-
-/// Owned handle returned by [`start`].
-///
-/// The caller keeps `rx` (drains [`NetworkEvent`]s each frame) and
-/// `tx` (sends [`NetworkCommand`]s from keyboard input etc.).
-pub struct NetworkHandle {
-    /// Send commands to the background thread.
-    pub tx: Sender<NetworkCommand>,
-    /// Receive events from the background thread (non-blocking `try_recv`).
-    pub rx: Receiver<NetworkEvent>,
-}
+use super::{AppEvent, NetworkCommand, NetworkEvent, NetworkHandle};
 
 // ── Entry point ───────────────────────────────────────────────────────────────
 
@@ -421,7 +345,7 @@ async fn wait_for_open(ws_rx: &ewebsock::WsReceiver) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ffoie_protocol::{Channel, Team};
+    use ffoie_protocol::{Channel, ChatMessage, PlayerEntry, Team};
 
     // ── Backoff math ──────────────────────────────────────────────────────────
 
@@ -474,7 +398,7 @@ mod tests {
         // is astronomically small.  This check catches a broken RNG returning 0.
         assert!(
             max_observed > 4_000,
-            "jitter appears broken — all 500 samples ≤ 4000ms (max={max_observed})"
+            "jitter appears broken — all 500 samples <= 4000ms (max={max_observed})"
         );
     }
 

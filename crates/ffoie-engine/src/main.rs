@@ -6,24 +6,17 @@
 //!   • Proper egui UI overlay: top-left FPS readout + centered pause menu.
 //!   • Floor culling fix (was facing the wrong way — invisible from above).
 
-// Chat network module (native-only; gated inside the file with #![cfg(...)]).
-// Plan 03-05 wires the types into the engine; this declaration triggers
-// compilation so that cargo build -p ffoie catches any errors in network.rs.
-#[cfg(not(target_arch = "wasm32"))]
+// Chat network module — mod.rs compiles on all platforms; native.rs is gated.
+// AppEvent lives in network/types.rs (always compiled) so EventLoop::<AppEvent>
+// resolves on both native and wasm32 without a stub.
 pub mod network;
 
 // Chat HUD state and egui panel renderer (plan 03-04).
 // Compiles on all platforms; drain_network + render_panel are native-only.
 pub mod chat;
 
-// AppEvent is defined in network.rs (native) and used to type the EventLoop
-// so the network background thread can wake the winit loop.
-// On wasm32, define a stub empty enum so EventLoop::<AppEvent> compiles.
-#[cfg(not(target_arch = "wasm32"))]
+// AppEvent is defined in network/types.rs (all platforms).
 use network::AppEvent;
-#[cfg(target_arch = "wasm32")]
-#[derive(Debug, Clone)]
-pub enum AppEvent {}
 
 use std::collections::HashSet;
 use std::sync::{Arc, OnceLock};
