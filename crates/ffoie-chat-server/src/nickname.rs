@@ -10,7 +10,6 @@ use ffoie_protocol::Team;
 
 // ── Normalization ─────────────────────────────────────────────────────────────
 
-#[allow(dead_code)] // consumed by plan 02-03 (ws.rs)
 /// Normalize a raw client-supplied nickname.
 ///
 /// Rules (in order):
@@ -28,7 +27,6 @@ pub fn normalize_nick(raw: &str) -> String {
 
 // ── Collision resolution ──────────────────────────────────────────────────────
 
-#[allow(dead_code)] // consumed by plan 02-03 (ws.rs)
 /// Assign a unique nickname given a set of already-taken names.
 ///
 /// Algorithm:
@@ -58,7 +56,6 @@ pub fn assign_nick(requested: &str, taken: &HashSet<String>) -> String {
 
 // ── Team assignment ───────────────────────────────────────────────────────────
 
-#[allow(dead_code)] // consumed by plan 02-03 (ws.rs)
 /// Randomly assign a team — Red or Blue, 50/50.
 ///
 /// Team::None is never returned; that value is reserved for the protocol

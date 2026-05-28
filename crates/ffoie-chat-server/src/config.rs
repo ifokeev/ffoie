@@ -6,7 +6,6 @@ use std::net::SocketAddr;
 /// with no `.env` file. Operators override via shell env or a `.env` file
 /// at the working directory (loaded by `dotenvy::dotenv()`).
 #[derive(Debug, Clone)]
-#[allow(dead_code)] // fields consumed by plans 02-02 and 02-03
 pub struct Config {
     /// Address and port the server binds to.
     pub bind: SocketAddr,

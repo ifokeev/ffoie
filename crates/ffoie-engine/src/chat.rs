@@ -77,7 +77,7 @@ pub struct ChatState {
     /// Current connection health.
     pub connection_status: ConnectionStatus,
     /// Monotonically-increasing ping sequence number (for heartbeat tracking).
-    #[allow(dead_code)]
+    #[allow(dead_code)] // field written by network layer; read access deferred to v1.1.x missed-pong detection
     pub(crate) ping_seq: u32,
 }
 

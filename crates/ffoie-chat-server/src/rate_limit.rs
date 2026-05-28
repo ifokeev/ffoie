@@ -76,8 +76,9 @@ impl TokenBucket {
 
     /// Returns the time until one token refills as a [`Duration`].
     ///
-    /// Convenience wrapper around [`retry_after_ms`] for use in tests.
-    #[allow(dead_code)]
+    /// Convenience wrapper around [`retry_after_ms`] for use in tests and
+    /// future callers that prefer a typed Duration over raw milliseconds.
+    #[allow(dead_code)] // no production caller yet; kept for test ergonomics
     pub fn retry_after(&self) -> Duration {
         Duration::from_millis(self.retry_after_ms())
     }

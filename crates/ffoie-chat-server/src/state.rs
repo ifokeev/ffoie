@@ -24,7 +24,6 @@ use crate::config::Config;
 /// `team_filter` is `Some(team)` for SayTeam events; receivers whose team
 /// does not match silently drop the event without re-serializing.
 #[derive(Debug, Clone)]
-#[allow(dead_code)] // fields consumed by plan 02-03 (ws.rs)
 pub struct BroadcastEvent {
     pub msg: ServerMessage,
     pub team_filter: Option<Team>,
@@ -34,7 +33,6 @@ pub struct BroadcastEvent {
 
 /// Per-connection metadata stored in `AppState::connections`.
 #[derive(Debug, Clone)]
-#[allow(dead_code)] // fields consumed by plan 02-03 (ws.rs)
 pub struct ConnInfo {
     pub session_id: Uuid,
     pub nickname: String,
@@ -49,9 +47,8 @@ pub struct ConnInfo {
 /// axum clones this per-request when calling `State` extractors.
 ///
 /// `task_tracker` is used by ws.rs to register per-connection tasks so that
-/// main.rs can await their completion on graceful shutdown (plan 02-04).
+/// main.rs can await their completion on graceful shutdown.
 #[derive(Clone)]
-#[allow(dead_code)] // fields consumed by plans 02-03 and 02-04
 pub struct AppState {
     pub config: Arc<Config>,
     pub broadcast_tx: broadcast::Sender<Arc<BroadcastEvent>>,
@@ -67,7 +64,6 @@ pub struct AppState {
     pub started_at: Instant,
 }
 
-#[allow(dead_code)] // methods consumed by plans 02-03 and 02-04
 impl AppState {
     /// Construct a fresh AppState.
     ///
