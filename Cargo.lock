@@ -851,6 +851,7 @@ dependencies = [
  "dotenvy",
  "fastrand",
  "ffoie-protocol",
+ "futures-util",
  "parking_lot",
  "serde",
  "serde_json",

@@ -10,6 +10,7 @@ use std::time::Instant;
 use parking_lot::Mutex;
 use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
+use tokio_util::task::TaskTracker;
 use uuid::Uuid;
 
 use ffoie_protocol::{ChatMessage, PlayerEntry, ServerMessage, Team};
@@ -44,8 +45,11 @@ pub struct ConnInfo {
 
 /// Shared state threaded through all axum handlers and WS tasks.
 ///
-/// All fields are `Arc`-wrapped so `Clone` is O(1) — axum clones this
-/// per-request when calling `State` extractors.
+/// All fields are `Arc`-wrapped (or cheaply clonable) so `Clone` is O(1) —
+/// axum clones this per-request when calling `State` extractors.
+///
+/// `task_tracker` is used by ws.rs to register per-connection tasks so that
+/// main.rs can await their completion on graceful shutdown (plan 02-04).
 #[derive(Clone)]
 #[allow(dead_code)] // fields consumed by plans 02-03 and 02-04
 pub struct AppState {
@@ -54,6 +58,12 @@ pub struct AppState {
     pub scrollback: Arc<Mutex<VecDeque<ChatMessage>>>,
     pub connections: Arc<Mutex<HashMap<Uuid, ConnInfo>>>,
     pub cancellation_token: CancellationToken,
+    /// Tracks all spawned WebSocket handler tasks.
+    ///
+    /// `ws.rs` spawns tasks via `state.task_tracker.spawn(...)` so that the
+    /// shutdown path in `main.rs` can call `task_tracker.close()` +
+    /// `task_tracker.wait()` (with a 5-second hard timeout) to drain them.
+    pub task_tracker: TaskTracker,
     pub started_at: Instant,
 }
 
@@ -71,6 +81,7 @@ impl AppState {
             scrollback: Arc::new(Mutex::new(VecDeque::new())),
             connections: Arc::new(Mutex::new(HashMap::new())),
             cancellation_token: CancellationToken::new(),
+            task_tracker: TaskTracker::new(),
             started_at: Instant::now(),
         }
     }
