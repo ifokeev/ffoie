@@ -1,0 +1,28 @@
+# Postgres lands in v1.1.x — the absence of a db service here is deliberate, not forgotten.
+
+services:
+  chat-server:
+    build:
+      context: .
+      dockerfile: crates/ffoie-chat-server/Dockerfile
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    environment:
+      - FFOIE_CHAT_BIND
+      - FFOIE_CHAT_MOTD
+      - FFOIE_CHAT_HEARTBEAT_SECS
+      - FFOIE_CHAT_MAX_MSG_BYTES
+      - FFOIE_CHAT_RATE_BURST
+      - FFOIE_CHAT_RATE_REFILL_PER_SEC
+      - FFOIE_CHAT_BROADCAST_CAPACITY
+      - FFOIE_CHAT_SCROLLBACK_SIZE
+      - FFOIE_CHAT_MAX_LAG_DISCONNECTS
+      - RUST_LOG
+      - RUST_LOG_FORMAT
