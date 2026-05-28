@@ -836,11 +836,9 @@ struct State {
     frame_ms_display: f32,
     first_frame_done: bool,
 
-    // Chat HUD (all platforms; drain_network + network channels are native-only).
+    // Chat HUD (all platforms; network channels now present on both native and wasm32).
     chat: chat::ChatState,
-    #[cfg(not(target_arch = "wasm32"))]
     network_rx: std::sync::mpsc::Receiver<network::NetworkEvent>,
-    #[cfg(not(target_arch = "wasm32"))]
     network_tx: std::sync::mpsc::Sender<network::NetworkCommand>,
 }
 
@@ -848,7 +846,6 @@ impl State {
     async fn new(
         display: OwnedDisplayHandle,
         window: Arc<Window>,
-        #[cfg(not(target_arch = "wasm32"))]
         proxy: winit::event_loop::EventLoopProxy<AppEvent>,
     ) -> State {
         // `*_from_env` so env vars (WGPU_BACKEND, WGPU_POWER_PREF,
@@ -1399,9 +1396,8 @@ impl State {
 
         let camera = Camera::new(size.width as f32 / size.height.max(1) as f32);
 
-        // ── Chat + network init (native-only) ──
+        // ── Chat + network init (all platforms) ──
         let chat = chat::ChatState::new();
-        #[cfg(not(target_arch = "wasm32"))]
         let network_handle = network::start(proxy);
 
         let s = State {
@@ -1455,9 +1451,7 @@ impl State {
             frame_ms_display: 0.0,
             first_frame_done: false,
             chat,
-            #[cfg(not(target_arch = "wasm32"))]
             network_rx: network_handle.rx,
-            #[cfg(not(target_arch = "wasm32"))]
             network_tx: network_handle.tx,
         };
         s.configure_surface();
@@ -1618,8 +1612,7 @@ impl State {
 
         // Capture a pending command from render_panel after run_ui ends.
         // (We can't borrow self.network_tx inside the run_ui closure, so we
-        // collect the command here and send it afterward.)
-        #[cfg(not(target_arch = "wasm32"))]
+        // collect the command here and send it afterward. All platforms after Phase 4.)
         let mut pending_chat_cmd: Option<network::NetworkCommand> = None;
 
         let full_output = self.egui_ctx.run_ui(raw_input, |root_ui| {
@@ -1792,9 +1785,7 @@ impl State {
                     });
             }
 
-            // ─ Chat panel (bottom of screen) ─
-            // render_panel is native-only; wasm32 path is a no-op until Phase 4.
-            #[cfg(not(target_arch = "wasm32"))]
+            // ─ Chat panel (bottom of screen, all platforms after Phase 4) ─
             {
                 // render_panel returns Some(cmd) when the user submits text via
                 // Enter inside the egui TextEdit.  We can't borrow network_tx
@@ -1933,8 +1924,7 @@ impl State {
             self.exit_requested = true;
         }
 
-        // ── Flush any chat command produced by render_panel (native-only) ──
-        #[cfg(not(target_arch = "wasm32"))]
+        // ── Flush any chat command produced by render_panel (all platforms) ──
         if let Some(cmd) = pending_chat_cmd {
             let _ = self.network_tx.send(cmd);
         }
@@ -2061,9 +2051,8 @@ struct App {
     /// once it's ready.
     #[cfg(target_arch = "wasm32")]
     pending_state: std::rc::Rc<std::cell::RefCell<Option<State>>>,
-    /// EventLoopProxy so the network background thread can wake the winit loop.
-    /// Stored here so it can be passed to State::new on first `resumed`.
-    #[cfg(not(target_arch = "wasm32"))]
+    /// EventLoopProxy so the network thread (native) or wasm loop can be
+    /// started. Stored here so it can be passed to State::new on first `resumed`.
     proxy: Option<winit::event_loop::EventLoopProxy<AppEvent>>,
 }
 
@@ -2079,8 +2068,7 @@ impl ApplicationHandler<AppEvent> for App {
 
     fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
         // Drain incoming network events into chat state once per frame.
-        // This is native-only; on wasm32 the network path is Phase 4.
-        #[cfg(not(target_arch = "wasm32"))]
+        // Runs on both native and wasm32.
         if let Some(state) = self.state.as_mut() {
             chat::drain_network(&state.network_rx, &mut state.chat);
         }
@@ -2130,8 +2118,11 @@ impl ApplicationHandler<AppEvent> for App {
         {
             let cell = self.pending_state.clone();
             let win_clone = window.clone();
+            // Take the proxy we stored at startup so it can be passed to
+            // network::start inside State::new.
+            let proxy = self.proxy.take().expect("EventLoopProxy must be set before resumed");
             wasm_bindgen_futures::spawn_local(async move {
-                let state = State::new(display, win_clone).await;
+                let state = State::new(display, win_clone, proxy).await;
                 let w = state.window.clone();
                 *cell.borrow_mut() = Some(state);
                 w.request_redraw();
@@ -2230,12 +2221,9 @@ impl ApplicationHandler<AppEvent> for App {
                 if key_state == ElementState::Pressed {
                     if let Key::Named(NamedKey::Enter) = logical_key {
                         if state.chat.chat_active {
-                            #[cfg(not(target_arch = "wasm32"))]
                             if let Some(cmd) = chat::submit(&mut state.chat) {
                                 let _ = state.network_tx.send(cmd);
                             }
-                            #[cfg(target_arch = "wasm32")]
-                            { state.chat.chat_active = false; state.chat.input_buffer.clear(); }
                             // Reacquire cursor.
                             if !state.paused && !state.captured && grab_cursor(&state.window) {
                                 state.captured = true;
@@ -2326,7 +2314,8 @@ fn run_event_loop() {
         // On the web `run_app` would block the JS event loop forever.
         // `spawn_app` returns to JS and hooks our handler into requestAnimationFrame.
         use winit::platform::web::EventLoopExtWebSys;
-        let app = App::default();
+        let proxy = event_loop.create_proxy();
+        let app = App { proxy: Some(proxy), ..App::default() };
         event_loop.spawn_app(app);
     }
 }

@@ -17,3 +17,10 @@ pub use types::{AppEvent, NetworkCommand, NetworkEvent, NetworkHandle};
 // Re-export the start() entry point and backoff helper for native builds.
 #[cfg(not(target_arch = "wasm32"))]
 pub use native::{backoff_delay_ms, start};
+
+#[cfg(target_arch = "wasm32")]
+pub mod wasm;
+
+// Re-export wasm start() so call sites use network::start() on all platforms.
+#[cfg(target_arch = "wasm32")]
+pub use wasm::start;

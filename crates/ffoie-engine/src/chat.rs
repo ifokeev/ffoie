@@ -135,16 +135,12 @@ impl Default for ChatState {
     }
 }
 
-// ── Native-only: network drain + egui panel ───────────────────────────────────
+// ── Network drain + egui panel (all platforms after Phase 4) ─────────────────
 
-#[cfg(not(target_arch = "wasm32"))]
 pub use native::drain_network;
-#[cfg(not(target_arch = "wasm32"))]
 pub use native::render_panel;
-#[cfg(not(target_arch = "wasm32"))]
 pub use native::submit;
 
-#[cfg(not(target_arch = "wasm32"))]
 mod native {
     use super::{ChatState, ConnectionStatus, DRAIN_CAP};
     use crate::network::{NetworkCommand, NetworkEvent};
