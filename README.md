@@ -147,14 +147,6 @@ Server settings are env vars documented in
 [`crates/ffoie-chat-server/.env.example`](crates/ffoie-chat-server/.env.example);
 `make soak` runs a 1000-client load test.
 
-### Tested platforms
-
-- **Engine**: macOS (Metal), Linux (Vulkan), Windows (DX12 via MSVC). The native
-  window needs a GPU + display.
-- **Chat server, tests, and soak**: verified on Linux (x86_64) — `cargo test`
-  runs 80+ tests; `make soak` holds 1000 connections for 5 minutes (~150 MB RSS,
-  zero panics). The server runs headless.
-
 ## Controls
 
 | Action | Key |
