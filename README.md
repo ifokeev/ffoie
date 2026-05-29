@@ -6,10 +6,43 @@
 prototype focused on movement feel, low-latency input, and a sub-2-second
 cold start. Cross-platform: macOS, Windows, Linux.
 
-This is an early prototype: no weapons, no gameplay loop. The goal is to make
-sure the *bones* — input, render, physics, asset pipeline — feel right before
-any game logic gets bolted on. It's a small Cargo workspace — the engine plus a
-WebSocket chat server and a shared protocol crate (see [Architecture](#architecture)).
+An early prototype — no weapons, no gameplay loop yet — focused on getting the
+*bones* (input, render, physics, asset pipeline) right before any game logic
+lands. It's a small Cargo workspace: the engine plus a WebSocket chat server and
+a shared protocol crate (see [Architecture](#architecture)).
+
+## Contents
+
+- [Features](#features)
+- [Build & run](#build--run)
+- [Environment variables](#environment-variables)
+- [Controls](#controls)
+- [Architecture](#architecture)
+- [Known issues](#known-issues)
+- [Licences](#asset--dependency-licences)
+
+## Features
+
+- **Renderer**: `wgpu 29` — picks Metal on macOS, DirectX 12 on Windows, Vulkan
+  on Linux automatically. The on-screen widget shows which backend is live.
+- **Physics**: Quake `PM_Accelerate` + `PM_Friction` + `PM_AirAccelerate`
+  (VQ3 defaults). Real strafe-jumping works. Tunable constants at the top of
+  `crates/ffoie-engine/src/main.rs` (`GROUND_ACCEL`, `AIR_ACCEL`, `MAX_SPEED`, `FRICTION`,
+  `JUMP_VELOCITY`, `GRAVITY`, `FOV_DEG`, `MOUSE_SENSITIVITY`).
+- **Fixed-timestep simulation** at 120 Hz, decoupled from render rate.
+- **Raw-input mouse-look** via `winit::DeviceEvent::MouseMotion` with
+  `CursorGrabMode::Locked` — no OS smoothing / acceleration.
+- **AABB collision** against ~25 hand-arranged blocks forming a strafe-jump
+  course. Y-then-X-then-Z axis-separated sweep.
+- **Skybox** from a KTX2 cubemap.
+- **Procedural floor** with green grid lines (notebook-style).
+- **glTF model loading** (the corner Fox is from the Khronos CC0 sample
+  assets) including baseColor texture sampling.
+- **egui HUD** showing FPS, frame time, GPU/API/backend info, present mode,
+  resolution; a thin colour-graded speed bar under the crosshair; pause menu
+  with Resume / Exit.
+- **Online text chat** over WebSockets via a separate `ffoie-chat-server`
+  binary — start it with the [Docker dev stack](#dev-stack-docker).
 
 ## Build & run
 
@@ -135,17 +168,30 @@ make docker-up      # builds + starts the chat server and the web client
 make docker-down    # tear down
 ```
 
-Default host ports are **47820** (chat) and **47821** (web); override with
-`FFOIE_CHAT_PORT` / `FFOIE_WEB_PORT`. To run a *native* engine (built above)
-against that server, point it at the chat URL:
+Default host ports are **47820** (chat) and **47821** (web) — change them via
+[Environment variables](#environment-variables). To run a *native* engine (built
+above) against that server, point it at the chat URL:
 
 ```sh
 FFOIE_CHAT_URL=ws://localhost:47820/ws cargo run --release
 ```
 
-Server settings are env vars documented in
-[`crates/ffoie-chat-server/.env.example`](crates/ffoie-chat-server/.env.example);
-`make soak` runs a 1000-client load test.
+`make soak` runs a 1000-connection load test.
+
+## Environment variables
+
+Everything has a default, so nothing is required to run locally.
+
+| Variable | Default | What it does |
+| --- | --- | --- |
+| `FFOIE_CHAT_URL` | `ws://localhost:8080/ws` | chat server the engine connects to (native reads it at runtime; the web build bakes it in at compile time) |
+| `FFOIE_NICK` | `guest` | your display nickname (native engine) |
+| `FFOIE_CHAT_PORT` | `47820` | host port the Docker chat server is published on |
+| `FFOIE_WEB_PORT` | `47821` | host port the Docker web client is published on |
+
+The chat server has more knobs (MOTD, message-size cap, rate limit, scrollback,
+heartbeat), each documented with its default in
+[`crates/ffoie-chat-server/.env.example`](crates/ffoie-chat-server/.env.example).
 
 ## Controls
 
@@ -157,29 +203,6 @@ Server settings are env vars documented in
 | Jump (auto-hops while held) | **Space** |
 | Crouch / move down (when on ground: nothing yet) | **Left Ctrl** |
 | Sprint | **Left Shift** |
-
-## What's in the prototype
-
-- **Renderer**: `wgpu 29` — picks Metal on macOS, DirectX 12 on Windows, Vulkan
-  on Linux automatically. The on-screen widget shows which backend is live.
-- **Physics**: Quake `PM_Accelerate` + `PM_Friction` + `PM_AirAccelerate`
-  (VQ3 defaults). Real strafe-jumping works. Tunable constants at the top of
-  `crates/ffoie-engine/src/main.rs` (`GROUND_ACCEL`, `AIR_ACCEL`, `MAX_SPEED`, `FRICTION`,
-  `JUMP_VELOCITY`, `GRAVITY`, `FOV_DEG`, `MOUSE_SENSITIVITY`).
-- **Fixed-timestep simulation** at 120 Hz, decoupled from render rate.
-- **Raw-input mouse-look** via `winit::DeviceEvent::MouseMotion` with
-  `CursorGrabMode::Locked` — no OS smoothing / acceleration.
-- **AABB collision** against ~25 hand-arranged blocks forming a strafe-jump
-  course. Y-then-X-then-Z axis-separated sweep.
-- **Skybox** from a KTX2 cubemap.
-- **Procedural floor** with green grid lines (notebook-style).
-- **glTF model loading** (the corner Fox is from the Khronos CC0 sample
-  assets) including baseColor texture sampling.
-- **egui HUD** showing FPS, frame time, GPU/API/backend info, present mode,
-  resolution; a thin colour-graded speed bar under the crosshair; pause menu
-  with Resume / Exit.
-- **Online text chat** over WebSockets via a separate `ffoie-chat-server`
-  binary — start it with the [Docker dev stack](#dev-stack-docker).
 
 ## Architecture
 
