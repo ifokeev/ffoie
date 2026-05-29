@@ -6,9 +6,11 @@
 prototype focused on movement feel, low-latency input, and a sub-2-second
 cold start. Cross-platform: macOS, Windows, Linux.
 
-This is an early prototype: a single binary, no networking, no weapons, no
-gameplay loop. The goal is to make sure the *bones* — input, render, physics,
-asset pipeline — feel right before any game logic gets bolted on.
+This is an early prototype: no weapons, no gameplay loop. The goal is to make
+sure the *bones* — input, render, physics, asset pipeline — feel right before
+any game logic gets bolted on. As of **v1.1** it's a small Cargo workspace — the
+engine plus a WebSocket chat server and a shared protocol crate; see
+[Architecture](#architecture-v11) and [Online chat (v1.1)](#online-chat-v11).
 
 ## Build & run
 
@@ -140,7 +142,7 @@ iCloud doesn't sync several GB of build artefacts).
   on Linux automatically. The on-screen widget shows which backend is live.
 - **Physics**: Quake `PM_Accelerate` + `PM_Friction` + `PM_AirAccelerate`
   (VQ3 defaults). Real strafe-jumping works. Tunable constants at the top of
-  `src/main.rs` (`GROUND_ACCEL`, `AIR_ACCEL`, `MAX_SPEED`, `FRICTION`,
+  `crates/ffoie-engine/src/main.rs` (`GROUND_ACCEL`, `AIR_ACCEL`, `MAX_SPEED`, `FRICTION`,
   `JUMP_VELOCITY`, `GRAVITY`, `FOV_DEG`, `MOUSE_SENSITIVITY`).
 - **Fixed-timestep simulation** at 120 Hz, decoupled from render rate.
 - **Raw-input mouse-look** via `winit::DeviceEvent::MouseMotion` with
@@ -154,25 +156,63 @@ iCloud doesn't sync several GB of build artefacts).
 - **egui HUD** showing FPS, frame time, GPU/API/backend info, present mode,
   resolution; a thin colour-graded speed bar under the crosshair; pause menu
   with Resume / Exit.
+- **Online chat (v1.1)**: in-game text chat over WebSockets via a separate
+  `ffoie-chat-server` binary — see [Online chat (v1.1)](#online-chat-v11).
 
-## Project layout
+## Architecture (v1.1)
 
+FFOIE is a Cargo workspace (`resolver = "2"`); a bare `cargo run` builds the
+engine. Three crates under `crates/`:
+
+- **`ffoie-engine`** — the engine binary (native + wasm32; binary name `ffoie`).
+- **`ffoie-chat-server`** — the WebSocket chat server (`axum`, native-only).
+- **`ffoie-protocol`** — the shared client↔server message types; pure `serde`
+  data that also compiles to wasm.
+
+The split keeps the protocol shareable and wasm-safe while the server's
+`tokio`/`axum` dependencies stay out of the web build.
+
+## Online chat (v1.1)
+
+Real-time text chat over WebSockets — anonymous nicknames, Red/Blue teams,
+scrollback, rate limiting. In-game: **T** all-chat, **Y** team-chat, **Esc**
+close; Quake `^0`–`^7` colour codes and `/who` work. Small infrastructure
+(in-memory fan-out, no database); holds ~1000 connections on one node.
+
+### Quick start — web + Docker (recommended)
+
+```sh
+make docker-up      # builds + starts the chat server and the web client
+# open http://localhost:47821  → the web client connects to chat automatically
+make docker-down    # tear down
 ```
-ffoie/
-├── Cargo.toml              wgpu, winit, egui, glam, bytemuck, gltf, image, ktx2
-├── README.md               (this file)
-├── src/
-│   ├── main.rs             single-file engine (~1800 lines, heavily commented)
-│   ├── shader.wgsl         cube/instance shader, lambert lighting
-│   ├── floor.wgsl          floor grid shader (procedural lines)
-│   ├── sky.wgsl            cubemap skybox shader
-│   ├── fox.wgsl            textured-mesh shader (used by the glTF Fox)
-│   └── assets/
-│       ├── skybox.ktx2     skybox cubemap (from wgpu's skybox example)
-│       └── fox.glb         glTF 2.0 fox model (Khronos CC0)
-└── debug/
-    └── macos-panic/        kernel panic logs and notes — see below
+
+Default host ports: **47820** (chat), **47821** (web) — override with
+`FFOIE_CHAT_PORT` / `FFOIE_WEB_PORT`.
+
+### Native client (macOS / Linux / Windows)
+
+Run the server with Docker, then point a native engine at it (engine build
+toolchain: see [Build & run](#build--run)):
+
+```sh
+make docker-up                                              # server on :47820
+FFOIE_CHAT_URL=ws://localhost:47820/ws cargo run --release
+# a second window with a different nickname:
+FFOIE_NICK=bob FFOIE_CHAT_URL=ws://localhost:47820/ws cargo run --release
 ```
+
+Server settings (port, MOTD, rate limits, …) are env vars documented in
+[`crates/ffoie-chat-server/.env.example`](crates/ffoie-chat-server/.env.example);
+`make soak` runs a 1000-client load test.
+
+### Tested platforms
+
+- **Chat server, test suite, and soak**: verified on **Linux (x86_64)**.
+  `cargo test` runs 80+ unit / integration / protocol tests; `make soak` holds
+  1000 connections for 5 minutes under ~150 MB RSS with zero panics.
+- **Engine**: developed on **macOS (M4, Metal)** and **Linux (Vulkan)**. The
+  native windowed client needs a GPU + display; the server runs headless.
 
 ## Known issues
 
@@ -204,7 +244,9 @@ exact instructions.
 ### Things FFOIE doesn't do yet
 
 - No game logic (no weapons, no enemies, no scoring, no levels)
-- No multiplayer / netcode
+- No *game-state* netcode — movement and entities are local-only. v1.1 adds
+  text **chat** over WebSockets, but there's no gameplay networking or
+  client-side prediction yet.
 - No sound
 - No anti-aliasing or shadows
 - Block collision is axis-separated — corners can briefly hitch, no step-up
